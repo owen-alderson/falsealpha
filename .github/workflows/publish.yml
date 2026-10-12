@@ -1,10 +1,12 @@
 # Push a version tag (e.g. v0.1.0) to build wheels, test them, and publish to PyPI
 # via Trusted Publishing (no tokens). Finishes green only once pip can install it.
+# Pull requests build and test the wheels too, without publishing.
 name: Publish to PyPI
 
 on:
   push:
     tags: ["v*"]
+  pull_request:
 
 jobs:
   wheels:
@@ -38,6 +40,7 @@ jobs:
 
   publish:
     needs: [wheels, sdist]
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
