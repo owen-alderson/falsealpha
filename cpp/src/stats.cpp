@@ -151,6 +151,8 @@ Pbo pbo_cscv(const std::vector<std::vector<double>>& returns, int S) {
 }
 
 std::vector<std::size_t> stationary_bootstrap(std::size_t T, double mean_block, std::uint64_t& state) {
+    if (T == 0) throw std::invalid_argument("cannot bootstrap an empty series");
+    if (!(mean_block >= 1)) throw std::invalid_argument("mean block length must be >= 1");
     std::vector<std::size_t> idx(T);
     double p = 1.0 / mean_block;
     std::size_t cur = next(state) % T;
@@ -168,6 +170,8 @@ SnoopTest snoop_tests(const std::vector<std::vector<double>>& excess, int bootst
     std::size_t T = excess[0].size();
     for (const auto& e : excess)
         if (e.size() != T) throw std::invalid_argument("ragged return matrix");
+    if (T < 2) throw std::invalid_argument("data-snooping tests need at least 2 days");
+    if (bootstraps < 1) throw std::invalid_argument("bootstraps must be >= 1");
     double sn = std::sqrt(static_cast<double>(T));
 
     std::vector<double> mean(K, 0.0);

@@ -26,3 +26,14 @@ def test_panel_roundtrip(tmp_path):
     q = Panel.load(tmp_path / "x.npz")
     assert q.fingerprint() == p.fingerprint()
     assert q.head(20).shape == (20, 5)
+
+
+def test_bad_field_names_are_refused():
+    import numpy as np
+    import pytest
+
+    from falsealpha.panel import Panel
+
+    with pytest.raises(ValueError, match="identifier"):
+        Panel(np.datetime64("2020-01-01") + np.arange(3), ["a"],
+              {"returns": np.zeros((3, 1)), "1d_ret": np.zeros((3, 1))}, np.ones((3, 1), bool))

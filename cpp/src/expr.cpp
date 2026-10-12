@@ -145,7 +145,7 @@ struct Parser {
         if (op->window) {
             expect(',');
             double w = number();
-            if (w != std::floor(w) || w < op->min_window || w > 10000)
+            if (w != std::floor(w) || w < op->min_window || w > kMaxWindow)
                 fail(std::string(op->name) + " window must be an integer >= " + std::to_string(op->min_window));
             n.window = static_cast<int>(w);
         }
@@ -165,6 +165,15 @@ std::string fmt_number(double v) {
 }
 
 }  // namespace
+
+bool valid_field_name(const std::string& name) {
+    if (name.empty() || !(std::isalpha(static_cast<unsigned char>(name[0])) || name[0] == '_')) return false;
+    for (char ch : name)
+        if (!(std::isalnum(static_cast<unsigned char>(ch)) || ch == '_')) return false;
+    for (const auto& o : op_table())
+        if (o.kind != Kind::Leaf && name == o.name) return false;
+    return true;
+}
 
 Node parse(const std::string& text) {
     Parser p{text};

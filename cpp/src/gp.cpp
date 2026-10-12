@@ -116,6 +116,7 @@ struct Scored {
     double raw = kNegInf;      // Sharpe minus parsimony, before the novelty penalty
     Summary train;
     std::vector<double> net;
+    std::vector<double> hall_corr;  // |corr| with each hall member as of the start of this generation
 };
 
 }  // namespace
@@ -145,6 +146,10 @@ SearchResult search(const Data& d, const Mat& returns, const SearchConfig& c, co
     if (c.fields.empty()) throw std::invalid_argument("search needs at least one field");
     if (c.train_end <= c.train_begin || c.train_end > d.T) throw std::invalid_argument("bad train window");
     if (c.population < 2 || c.generations < 1) throw std::invalid_argument("population >= 2 and generations >= 1");
+    if (c.max_size < 1 || c.max_depth < 1) throw std::invalid_argument("max_size and max_depth must be >= 1");
+    if (c.tournament < 1) throw std::invalid_argument("tournament must be >= 1");
+    for (int w : c.windows)  // the parser's limit: every scored formula must parse back for unseal
+        if (w < 1 || w > kMaxWindow) throw std::invalid_argument("windows must be in 1.." + std::to_string(kMaxWindow));
     for (const auto& f : c.fields) d.field(f);
 
     Rng rng(c.seed);
@@ -188,15 +193,21 @@ SearchResult search(const Data& d, const Mat& returns, const SearchConfig& c, co
             s.raw = s.train.sharpe - c.parsimony * static_cast<double>(n.size());
             s.fitness = s.raw;
             double worst = 0;
-            for (const auto& h : hall)
-                if (h.formula != s.formula && h.fitness >= s.raw)
-                    worst = std::max(worst, std::fabs(series_corr(b.net, h.net, c.train_begin, c.train_end)));
+            s.hall_corr.resize(hall.size());
+            for (std::size_t i = 0; i < hall.size(); ++i) {
+                s.hall_corr[i] = std::fabs(series_corr(b.net, hall[i].net, c.train_begin, c.train_end));
+                if (hall[i].formula != s.formula && hall[i].fitness >= s.raw) worst = std::max(worst, s.hall_corr[i]);
+            }
             if (worst > c.max_corr && s.fitness > 0)
                 s.fitness -= (worst - c.max_corr) / (1 - c.max_corr) * s.fitness;
             s.net = std::move(b.net);
         });
 
         // Ledger, cache and hall of fame (sequential, in population order: deterministic).
+        // origin[i] = index of hall member i in the snapshot the workers saw, or -1 if it
+        // joined during this loop (its correlations were not precomputed).
+        std::vector<long> origin(result.hall.size());
+        for (std::size_t i = 0; i < origin.size(); ++i) origin[i] = static_cast<long>(i);
         for (auto& s : scored) {
             Trial tr;
             tr.formula = s.formula;
@@ -213,18 +224,26 @@ SearchResult search(const Data& d, const Mat& returns, const SearchConfig& c, co
             auto& h = result.hall;
             bool beaten = false;
             std::vector<std::size_t> twins;
-            for (std::size_t i = 0; i < h.size(); ++i)
-                if (std::fabs(series_corr(s.net, h[i].net, c.train_begin, c.train_end)) > c.max_corr) {
+            for (std::size_t i = 0; i < h.size(); ++i) {
+                double corr = origin[i] >= 0 ? s.hall_corr[static_cast<std::size_t>(origin[i])]
+                                             : std::fabs(series_corr(s.net, h[i].net, c.train_begin, c.train_end));
+                if (corr > c.max_corr) {
                     if (h[i].fitness >= s.raw) beaten = true;
                     twins.push_back(i);
                 }
+            }
             if (beaten) continue;
-            for (auto it = twins.rbegin(); it != twins.rend(); ++it) h.erase(h.begin() + static_cast<long>(*it));
+            for (auto it = twins.rbegin(); it != twins.rend(); ++it) {
+                h.erase(h.begin() + static_cast<long>(*it));
+                origin.erase(origin.begin() + static_cast<long>(*it));
+            }
             Finalist f{s.formula, s.raw, s.train, std::move(s.net)};
-            h.insert(std::upper_bound(h.begin(), h.end(), f, [](const Finalist& a, const Finalist& b) {
+            auto pos = std::upper_bound(h.begin(), h.end(), f, [](const Finalist& a, const Finalist& b) {
                 return a.fitness > b.fitness;
-            }), std::move(f));
-            if (static_cast<int>(h.size()) > c.hall_size) h.pop_back();
+            });
+            origin.insert(origin.begin() + (pos - h.begin()), -1);
+            h.insert(pos, std::move(f));
+            if (static_cast<int>(h.size()) > c.hall_size) { h.pop_back(); origin.pop_back(); }
         }
         for (std::size_t i = 0; i < pop.size(); ++i) fit[i] = fitness_cache[keys[i]];
         if (progress) progress(gen, result);

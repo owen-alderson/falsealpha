@@ -28,6 +28,9 @@ class Panel:
         if self.universe.shape != (T, N):
             raise ValueError(f"universe is {self.universe.shape}, expected {(T, N)}")
         for name, arr in self.fields.items():
+            if not _core.valid_field_name(name):
+                raise ValueError(f"field name {name!r} must be an identifier that is not an operator name "
+                                 "(formulas refer to fields by name)")
             arr = np.ascontiguousarray(arr, dtype=np.float64)
             if arr.shape != (T, N):
                 raise ValueError(f"field {name!r} is {arr.shape}, expected {(T, N)}")

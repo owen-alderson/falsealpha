@@ -5,6 +5,7 @@ runs/<name>/
   ledger.csv.gz  every distinct formula the search scored (train stats)
   finalists.json the hall of fame with firewall verdicts
   nets.npy       finalists x pre-holdout days, daily net returns
+  dates.npy      the panel's days
   holdout.json   written by `unseal`; every look at the holdout is logged
 """
 
@@ -54,11 +55,23 @@ class MineConfig:
     fields: list[str] | None = None  # default: every panel field
 
 
+MIN_SEGMENT_DAYS = 60  # shorter train / validation / holdout segments can't be tested meaningfully
+
+
 def _segments(T_pre: int, val_start: int, delay: int) -> tuple[slice, slice]:
     # A position on day t earns returns on day t + delay + 1, so the last
     # delay + 1 train days would peek into validation: drop them.
     lag = delay + 1
     return slice(0, val_start - lag), slice(val_start, T_pre - lag)
+
+
+def _check_lengths(T: int, val_start: int, hold_start: int, delay: int) -> None:
+    lag = delay + 1
+    for name, days in (("train", val_start - lag), ("validation", hold_start - val_start - lag),
+                       ("holdout", T - hold_start - lag)):
+        if days < MIN_SEGMENT_DAYS:
+            raise ValueError(f"the {name} segment would have {days} usable days; need at least {MIN_SEGMENT_DAYS} "
+                             "(use a longer panel or other --train/--validation fractions)")
 
 
 def mine(panel_path: str | Path, run_dir: str | Path, cfg: MineConfig, splits: Splits = Splits(),
@@ -69,6 +82,7 @@ def mine(panel_path: str | Path, run_dir: str | Path, cfg: MineConfig, splits: S
     full = Panel.load(panel_path)
     T = full.shape[0]
     val_start, hold_start = splits.bounds(T)
+    _check_lengths(T, val_start, hold_start, cfg.delay)
     pre = full.head(hold_start)  # the search never receives the holdout
     train, val = _segments(hold_start, val_start, cfg.delay)
     fields = cfg.fields or sorted(pre.fields)
@@ -125,6 +139,7 @@ def mine(panel_path: str | Path, run_dir: str | Path, cfg: MineConfig, splits: S
     verdict["weights"] = firewall.combine(nets[verdict["survivors"]], val).tolist() if verdict["survivors"] else []
     (run_dir / "finalists.json").write_text(json.dumps(_strict(verdict), indent=2, allow_nan=False))
     np.save(run_dir / "nets.npy", nets)
+    np.save(run_dir / "dates.npy", full.dates)
     return verdict
 
 
@@ -164,12 +179,9 @@ def unseal(run_dir: str | Path, force: bool = False) -> dict:
 
 
 def _holdout_stats(net: np.ndarray, ppy: float) -> dict:
-    m = _core.moments(net)
-    sr = m["mean"] / m["sd"] if m["sd"] > 0 else 0.0
-    psr = _core.probabilistic_sharpe(sr, 0.0, m["n"], m["skew"], m["kurt"]) if m["n"] > 2 else float("nan")
-    curve = np.nancumsum(net)
-    return {"sharpe": sr, "sharpe_annual": sr * math.sqrt(ppy), "psr_vs_zero": psr,
-            "total_return": float(curve[-1]) if len(curve) else 0.0, "days": m["n"]}
+    d = firewall.deflated(net, 1)  # one pre-registered strategy: the bar is a Sharpe of 0
+    return {"sharpe": d["sharpe"], "sharpe_annual": d["sharpe"] * math.sqrt(ppy), "psr_vs_zero": d["dsr"],
+            "total_return": float(np.nansum(net)), "days": d["n"]}
 
 
 def _strict(x):

@@ -52,3 +52,12 @@ TEST_CASE("constants print exactly, so distinct formulas never share a ledger ke
     REQUIRE(to_string(parse("close * 0.1")) == "(0.1 * close)");
     REQUIRE(to_string(parse("close + 0.001")) == "(0.001 + close)");
 }
+
+TEST_CASE("field names must survive a round trip through the parser") {
+    REQUIRE(valid_field_name("close"));
+    REQUIRE(valid_field_name("_x1"));
+    REQUIRE_FALSE(valid_field_name("1d_ret"));
+    REQUIRE_FALSE(valid_field_name("quote-volume"));
+    REQUIRE_FALSE(valid_field_name("rank"));  // an operator name
+    REQUIRE_FALSE(valid_field_name(""));
+}

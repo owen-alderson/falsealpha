@@ -79,6 +79,9 @@ PYBIND11_MODULE(_core, m) {
                  d.T = universe.shape(0); d.N = universe.shape(1);
                  d.universe.assign(universe.data(), universe.data() + universe.size());
                  for (const auto& [name, a] : fields) {
+                     if (!valid_field_name(name))
+                         throw std::invalid_argument("field name '" + name +
+                                                     "' must be an identifier that is not an operator name");
                      Mat mat = to_mat(a);
                      if (mat.T != d.T || mat.N != d.N)
                          throw std::invalid_argument("field '" + name + "' shape does not match the universe");
@@ -96,6 +99,7 @@ PYBIND11_MODULE(_core, m) {
 
     m.def("canonical", [](const std::string& f) { return to_string(parse(f)); }, py::arg("formula"),
           "Parse a formula and return its canonical text (raises ValueError if invalid).");
+    m.def("valid_field_name", &valid_field_name, py::arg("name"));
     m.def("formula_size", [](const std::string& f) { return parse(f).size(); }, py::arg("formula"));
     m.def("operators", [] {
         py::list out;

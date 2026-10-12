@@ -92,3 +92,11 @@ TEST_CASE("stationary bootstrap is reproducible and in range") {
     REQUIRE(x == y);
     for (auto i : x) REQUIRE(i < 100);
 }
+
+TEST_CASE("bootstrap tests reject empty or one-day series") {
+    std::vector<std::vector<double>> empty(3), one(3, std::vector<double>(1, 0.01));
+    REQUIRE_THROWS_AS(snoop_tests(empty, 10, 5, 1), std::invalid_argument);
+    REQUIRE_THROWS_AS(snoop_tests(one, 10, 5, 1), std::invalid_argument);
+    std::uint64_t s = 1;
+    REQUIRE_THROWS_AS(stationary_bootstrap(0, 5, s), std::invalid_argument);
+}

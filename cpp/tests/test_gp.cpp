@@ -86,3 +86,19 @@ TEST_CASE("hall of fame holds no near-copies") {
         for (std::size_t j = i + 1; j < r.hall.size(); ++j)
             REQUIRE(std::fabs(series_corr(r.hall[i].net, r.hall[j].net, 0, 250)) <= c.max_corr + 1e-12);
 }
+
+TEST_CASE("search rejects settings it could never satisfy (instead of spinning)") {
+    Data d = planted(100, 10, 0.0, 4);
+    SearchConfig c = small_config();
+    c.train_end = 80;
+    c.max_size = 0;
+    REQUIRE_THROWS_AS(search(d, d.fields.at("returns"), c), std::invalid_argument);
+    c = small_config();
+    c.train_end = 80;
+    c.max_depth = 0;
+    REQUIRE_THROWS_AS(search(d, d.fields.at("returns"), c), std::invalid_argument);
+    c = small_config();
+    c.train_end = 80;
+    c.windows = {5, kMaxWindow + 1};  // could be scored but never parsed back
+    REQUIRE_THROWS_AS(search(d, d.fields.at("returns"), c), std::invalid_argument);
+}

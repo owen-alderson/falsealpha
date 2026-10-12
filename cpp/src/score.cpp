@@ -1,5 +1,7 @@
 #include "falsealpha/score.hpp"
 
+#include "falsealpha/ops.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <numeric>
@@ -7,21 +9,6 @@
 namespace fa {
 
 namespace {
-
-// Average-tie ranks of xs (0-based).
-std::vector<double> ranks(const std::vector<double>& xs) {
-    std::vector<std::size_t> idx(xs.size());
-    std::iota(idx.begin(), idx.end(), 0);
-    std::sort(idx.begin(), idx.end(), [&](std::size_t i, std::size_t j) { return xs[i] < xs[j]; });
-    std::vector<double> r(xs.size());
-    for (std::size_t i = 0; i < idx.size();) {
-        std::size_t j = i;
-        while (j + 1 < idx.size() && xs[idx[j + 1]] == xs[idx[i]]) ++j;
-        for (std::size_t k = i; k <= j; ++k) r[idx[k]] = 0.5 * (i + j);
-        i = j + 1;
-    }
-    return r;
-}
 
 double pearson(const std::vector<double>& a, const std::vector<double>& b) {
     double n = static_cast<double>(a.size());
@@ -59,7 +46,7 @@ Backtest backtest(const Mat& signal, const Mat& returns, const Data& d, const Sc
         if (members.size() >= static_cast<std::size_t>(c.min_assets)) {
             sig.clear();
             for (auto n : members) sig.push_back(s[n]);
-            std::vector<double> rk = ranks(sig);
+            std::vector<double> rk = average_ranks(sig);
             double mean = std::accumulate(rk.begin(), rk.end(), 0.0) / rk.size();
             double gross = 0;
             for (auto& x : rk) { x -= mean; gross += std::fabs(x); }
@@ -69,7 +56,7 @@ Backtest backtest(const Mat& signal, const Mat& returns, const Data& d, const Sc
             sig.clear(); tgt.clear();
             for (auto n : members)
                 if (std::isfinite(r[n])) { sig.push_back(s[n]); tgt.push_back(r[n]); }
-            if (sig.size() >= static_cast<std::size_t>(c.min_assets)) b.ic[t] = pearson(ranks(sig), ranks(tgt));
+            if (sig.size() >= static_cast<std::size_t>(c.min_assets)) b.ic[t] = pearson(average_ranks(sig), average_ranks(tgt));
         }
 
         double pnl = 0, turn = 0;

@@ -23,8 +23,13 @@ def _load(run_dir: Path) -> dict:
     return {"config": config, "verdict": verdict, "nets": nets, "holdout": holdout, "ledger": rows}
 
 
-def _finite(x: float) -> float | None:
+def _finite(x: float | None) -> float | None:
     return x if isinstance(x, (int, float)) and math.isfinite(x) else None
+
+
+def _fmt(x, spec: str) -> str:
+    """Format a number that may be missing (NaN is stored as null in run files)."""
+    return "–" if _finite(x) is None else format(x, spec)
 
 
 def build(run_dir: str | Path) -> str:
@@ -33,9 +38,14 @@ def build(run_dir: str | Path) -> str:
     cfg, v, nets, holdout = d["config"], d["verdict"], d["nets"], d["holdout"]
     ppy = cfg["periods_per_year"]
     ann = math.sqrt(ppy)
+
+    def yearly(x):  # per-period Sharpe -> annualised, keeping missing values missing
+        return None if x is None else x * ann
     T, hold_start = cfg["index"]["T"], cfg["index"]["hold_start"]
-    first = np.datetime64(cfg["dates"]["train"][0])
-    dates = [str(first + i) for i in range(T)]
+    if (run_dir / "dates.npy").exists():  # the panel's own days (calendar or business)
+        dates = [str(x) for x in np.load(run_dir / "dates.npy")]
+    else:  # runs mined before dates.npy existed: daily panels
+        dates = [str(np.datetime64(cfg["dates"]["train"][0]) + i) for i in range(T)]
 
     # Trial Sharpe distribution (annualised) and search progress.
     sh = np.array([float(r["train_sharpe"]) for r in d["ledger"]])
@@ -69,20 +79,20 @@ def build(run_dir: str | Path) -> str:
         curves.append({"name": f"Finalist #{k + 1}: {v['finalists'][k]['formula']}", "values": full})
     for c in curves:
         vals = c["values"]
-        started = np.isfinite(vals)
+        have = np.flatnonzero(np.isfinite(vals))
         cum = np.cumsum(np.nan_to_num(vals))
-        c["values"] = [round(float(x), 6) if s or i > 0 and started[:i].any() else None
-                       for i, (x, s) in enumerate(zip(cum, started))]
-        # stop the line where data ends (end of pre-holdout, unless unsealed)
-        lastidx = int(np.nonzero(started)[0].max()) if started.any() else -1
-        c["values"] = [x if i <= lastidx else None for i, x in enumerate(c["values"])]
+        # draw only from the first to the last day with data (pre-holdout, unless unsealed)
+        c["values"] = [None] * len(vals)
+        if len(have):
+            lo, hi = have[0], have[-1] + 1
+            c["values"][lo:hi] = [round(float(x), 6) for x in cum[lo:hi]]
 
     payload = {
         "dates": dates,
         "split": {"val": cfg["index"]["val_start"], "hold": hold_start},
         "curves": [{"name": c["name"], "values": c["values"]} for c in curves],
         "hist": {"counts": hist_counts.tolist(), "edges": edges.tolist(),
-                 "luck": _finite(v["sr0_train"] * ann)},
+                 "luck": _finite(yearly(v["sr0_train"]))},
         "pbo": v["pbo"]["logits"] if v["pbo"] else [],
         "progress": progress,
     }
@@ -101,22 +111,21 @@ def build(run_dir: str | Path) -> str:
                       f"is the best finalist better than luck? (SPA p {v['snoop']['spa_p']:.3f})"))
     if looks and looks[-1].get("combined"):
         c = looks[-1]["combined"]
-        tiles.append((f"{c['sharpe_annual']:+.2f}", "holdout Sharpe /yr", f"combined survivors, {c['days']} days"))
+        tiles.append((_fmt(c["sharpe_annual"], "+.2f"), "holdout Sharpe /yr", f"combined survivors, {c['days']} days"))
 
     def row(i: int, f: dict) -> str:
         tr, va = f["train"], f["validation"]
         status = ('<span class="st good">✓ pass</span>' if f["passed"]
                   else f'<span class="st bad" title="{html.escape("; ".join(f["reasons"]))}">✕ fail</span>')
-        cell = lambda x, fmt: "–" if x is None or not math.isfinite(x) else format(x, fmt)  # noqa: E731
         return (f"<tr><td class=num>{i + 1}</td><td class=formula><code>{html.escape(f['formula'])}</code></td>"
-                f"<td class=num>{cell(tr['sharpe'] * ann, '+.2f')}</td><td class=num>{cell(tr['dsr'], '.2f')}</td>"
-                f"<td class=num>{cell(va['sharpe'] * ann, '+.2f')}</td><td class=num>{cell(va['dsr'], '.2f')}</td>"
+                f"<td class=num>{_fmt(yearly(tr['sharpe']), '+.2f')}</td><td class=num>{_fmt(tr['dsr'], '.2f')}</td>"
+                f"<td class=num>{_fmt(yearly(va['sharpe']), '+.2f')}</td><td class=num>{_fmt(va['dsr'], '.2f')}</td>"
                 f"<td>{status}</td><td class=why>{html.escape('; '.join(f['reasons']))}</td></tr>")
 
     look_rows = "".join(
         f"<li>{html.escape(lk['time'])}: {len(lk['survivors'])} survivors"
-        + (f", combined holdout Sharpe {lk['combined']['sharpe_annual']:+.2f}/yr, "
-           f"P(true Sharpe &gt; 0) = {lk['combined']['psr_vs_zero']:.2f}" if lk.get("combined") else "")
+        + (f", combined holdout Sharpe {_fmt(lk['combined']['sharpe_annual'], '+.2f')}/yr, "
+           f"P(true Sharpe &gt; 0) = {_fmt(lk['combined']['psr_vs_zero'], '.2f')}" if lk.get("combined") else "")
         + "</li>" for lk in looks)
     if not looks:
         look_html = "<p class=muted>Sealed. Run <code>falsealpha unseal</code> once you are done searching.</p>"
@@ -142,7 +151,7 @@ def build(run_dir: str | Path) -> str:
             .replace("%TILES%", tile_html)
             .replace("%TABLE%", table)
             .replace("%LOOKS%", look_html)
-            .replace("%LUCK%", f"{v['sr0_train'] * ann:+.2f}")
+            .replace("%LUCK%", _fmt(yearly(v["sr0_train"]), "+.2f"))
             .replace("%NTRIALS%", f"{v['n_trials']:,}")
             .replace("%DATA%", json.dumps(payload, allow_nan=False, default=_finite)
                      .replace("</", "<\\/")))

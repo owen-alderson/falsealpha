@@ -27,6 +27,8 @@ struct OpInfo {
     bool commutative;
 };
 
+inline constexpr int kMaxWindow = 10000;  // largest window the parser accepts
+
 const std::vector<OpInfo>& op_table();
 const OpInfo& info(Op op);
 
@@ -40,6 +42,10 @@ struct Node {
     std::size_t size() const;   // node count
     std::size_t depth() const;
 };
+
+// Field names must be identifiers that are not operator names, so that every
+// formula's canonical text parses back to the same formula.
+bool valid_field_name(const std::string& name);
 
 // Parses e.g. "-rank(ts_delta(close, 5)) * ts_corr(volume, close, 10)".
 // Infix + - * / and unary minus are sugar for add/sub/mul/div/neg.

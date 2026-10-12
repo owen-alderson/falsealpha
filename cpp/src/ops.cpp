@@ -142,6 +142,20 @@ Mat sliding_extreme(const Mat& a, int d, bool want_max) {
 
 Mat broadcast(double value, std::size_t T, std::size_t N) { return Mat(T, N, value); }
 
+std::vector<double> average_ranks(const std::vector<double>& xs) {
+    std::vector<std::pair<double, std::uint32_t>> kv(xs.size());
+    for (std::size_t i = 0; i < xs.size(); ++i) kv[i] = {xs[i], static_cast<std::uint32_t>(i)};
+    std::sort(kv.begin(), kv.end());
+    std::vector<double> r(xs.size());
+    for (std::size_t i = 0; i < kv.size();) {
+        std::size_t j = i;
+        while (j + 1 < kv.size() && kv[j + 1].first == kv[i].first) ++j;
+        for (std::size_t k = i; k <= j; ++k) r[kv[k].second] = 0.5 * (i + j);
+        i = j + 1;
+    }
+    return r;
+}
+
 Mat apply_elem(Op op, const Mat& a, const Mat* b) {
     Mat out(a.T, a.N);
     std::size_t sz = a.v.size();
@@ -169,9 +183,9 @@ Mat apply_cross(Op op, const Mat& a, const Data& d) {
     std::size_t T = a.T, N = a.N;
     Mat out(T, N);
     std::vector<std::size_t> idx;
-    std::vector<std::pair<double, std::uint32_t>> kv;
+    std::vector<double> vals;
     idx.reserve(N);
-    kv.reserve(N);
+    vals.reserve(N);
     for (std::size_t t = 0; t < T; ++t) {
         const double* x = a.row(t);
         double* o = out.row(t);
@@ -182,16 +196,10 @@ Mat apply_cross(Op op, const Mat& a, const Data& d) {
         if (m == 0) continue;
         if (op == Op::Rank) {
             // Percentile rank in [0, 1]; ties share their average rank.
-            kv.clear();
-            for (auto n : idx) kv.emplace_back(x[n], static_cast<std::uint32_t>(n));
-            std::sort(kv.begin(), kv.end());
-            for (std::size_t i = 0; i < m;) {
-                std::size_t j = i;
-                while (j + 1 < m && kv[j + 1].first == kv[i].first) ++j;
-                double r = m == 1 ? 0.5 : 0.5 * (i + j) / (m - 1);
-                for (std::size_t k = i; k <= j; ++k) o[kv[k].second] = r;
-                i = j + 1;
-            }
+            vals.clear();
+            for (auto n : idx) vals.push_back(x[n]);
+            std::vector<double> r = average_ranks(vals);
+            for (std::size_t i = 0; i < m; ++i) o[idx[i]] = m == 1 ? 0.5 : r[i] / (m - 1);
             continue;
         }
         double s = 0, ss = 0;
