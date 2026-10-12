@@ -121,3 +121,20 @@ TEST_CASE("unknown fields are reported") {
     Data d = test::random_data(10, 3, 1);
     REQUIRE_THROWS_AS(evaluate(parse("rank(vwap)"), d), std::invalid_argument);
 }
+
+TEST_CASE("ts_delay and ts_delta need the whole window, not just its ends") {
+    Data d;
+    d.T = 6; d.N = 1;
+    d.universe.assign(6, 1);
+    Mat c(6, 1);
+    c.v = {100, 100, NaN, 1, 1, 1};  // e.g. a 1:100 redenomination during a suspension
+    d.fields["close"] = c;
+    Mat delta = evaluate(parse("ts_delta(close, 3)"), d);
+    REQUIRE(std::isnan(delta(3, 0)));  // window 0..3 holds the gap
+    REQUIRE(std::isnan(delta(4, 0)));  // 1..4 too
+    REQUIRE(std::isnan(delta(5, 0)));  // 2..5 too
+    Mat delay = evaluate(parse("ts_delay(close, 1)"), d);
+    REQUIRE(delay(1, 0) == Approx(100));
+    REQUIRE(std::isnan(delay(3, 0)));
+    REQUIRE(delay(4, 0) == Approx(1));
+}

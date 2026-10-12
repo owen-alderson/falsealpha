@@ -124,7 +124,9 @@ def download(cache: Path, start: str = "2017-01", workers: int = 16, log=print) 
 
     def fetch(key: str) -> None:
         data = _get(f"{FILES}/{urllib.parse.quote(key)}")
-        zipfile.ZipFile(io.BytesIO(data)).testzip()  # CRC check before caching
+        bad = zipfile.ZipFile(io.BytesIO(data)).testzip()  # returns the first corrupt member, or None
+        if bad is not None:
+            raise OSError(f"{key}: corrupt download ({bad}); run again to refetch")
         dest = cache / Path(key).parent.parent.name / Path(key).name
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_suffix(".part")
@@ -163,7 +165,8 @@ def lives(days: np.ndarray, gap_days: int) -> list[np.ndarray]:
     """Split sorted candle days into separate assets at gaps longer than gap_days."""
     if len(days) == 0:
         return []
-    cuts = np.nonzero(np.diff(days).astype(int) > gap_days)[0] + 1
+    missing = np.diff(days).astype(int) - 1  # days without a candle between two candles
+    cuts = np.nonzero(missing > gap_days)[0] + 1
     return np.split(days, cuts)
 
 

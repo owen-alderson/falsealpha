@@ -12,23 +12,23 @@ Search hard enough and you will always find a backtest that looks good. falsealp
 ```
 $ falsealpha data noise --out noise.npz          # 2,500 days x 60 assets of pure noise
 $ falsealpha mine noise.npz runs/noise
-6003 formulas tried -> 50 finalists -> 0 survivors
-  luck bar (train): best of 6003 unskilled strategies ~ Sharpe +1.84 /yr
-  SPA p 0.800   Reality Check p 0.942
-  PBO 0.95  (share of splits where the in-sample winner lands in the bottom half)
+6002 formulas tried -> 50 finalists -> 0 survivors
+  luck bar (train): best of 6002 unskilled strategies ~ Sharpe +1.84 /yr
+  Reality Check p 0.942 (gate)   SPA p 0.800
+  PBO 0.95  (share of splits where the in-sample best finalist lands in the bottom half)
 
 $ falsealpha data planted --out planted.npz      # same, plus one hidden alpha
 $ falsealpha mine planted.npz runs/planted
 6397 formulas tried -> 50 finalists -> 3 survivors
   luck bar (train): best of 6397 unskilled strategies ~ Sharpe +1.85 /yr
-  SPA p 0.000   Reality Check p 0.000
-  PBO 0.00  (share of splits where the in-sample winner lands in the bottom half)
+  Reality Check p 0.000 (gate)   SPA p 0.000
+  PBO 0.00  (share of splits where the in-sample best finalist lands in the bottom half)
   [PASS] train +5.87 (DSR 1.00)  val +4.94 (DSR 1.00)  (decay_linear(ts_sum(volume, 3), 5) * ts_sum(volume, 5))
 $ falsealpha unseal runs/planted
 combined: holdout Sharpe +4.08 /yr, P(true Sharpe > 0) 1.00, 498 days
 ```
 
-Across 30 independent noise panels (1,500 days × 60 assets, population 200 × 6 generations; [`scripts/noise_calibration.py`](scripts/noise_calibration.py)), the firewall let through **0** formulas. The SPA gate opened by chance in 2 of the 30 runs (a 5% test should do that about 1.5 times), and the Deflated Sharpe still caught everything. Mean PBO was 0.49, a coin flip, which is what overfitting to noise looks like.
+Across 30 independent noise panels (1,500 days × 60 assets, population 200 × 6 generations; [`scripts/noise_calibration.py`](scripts/noise_calibration.py)), the firewall let through **0** formulas. The Reality Check gate never opened (0 of 30); the Deflated Sharpe alone would also have caught everything. Mean PBO was 0.49, a coin flip, which is what overfitting to noise looks like.
 
 ## On real data: six years of crypto
 
@@ -37,16 +37,16 @@ The default search on every Binance USDT pair that was ever in the daily top 100
 ```
 $ falsealpha data binance --out data/binance-top100.npz
 $ falsealpha mine data/binance-top100.npz runs/crypto        # 45 s on an M3 Pro
-7228 formulas tried -> 50 finalists -> 0 survivors
-  luck bar (train): best of 7228 unskilled strategies ~ Sharpe +1.88 /yr
-  SPA p 0.446   Reality Check p 0.608
-  PBO 0.44  (share of splits where the in-sample winner lands in the bottom half)
-  [fail] train +2.57 (DSR 0.92)  val -1.92 (DSR 0.00)  (((ts_sum(ts_argmin(quote_volume, 20), 10) / ts_mean(rank(trades), 5)) - (demean(open) * ts_rank(low, 20))) - vwap)
-  [fail] train +1.89 (DSR 0.51)  val +1.67 (DSR 0.36)  -ts_sum(ts_cov(close, ts_rank(trades, 5), 10), 40)
-  [fail] train +1.73 (DSR 0.38)  val +1.32 (DSR 0.22)  ts_min((ts_delay(high, 40) - vwap), 40)
+7376 formulas tried -> 50 finalists -> 0 survivors
+  luck bar (train): best of 7376 unskilled strategies ~ Sharpe +1.88 /yr
+  Reality Check p 0.475 (gate)   SPA p 0.185
+  PBO 0.73  (share of splits where the in-sample best finalist lands in the bottom half)
+  [fail] train +2.06 (DSR 0.64)  val -1.08 (DSR 0.00)  min(((quote_volume / ts_mean(ts_delta(open, 20), 5)) - high), -ts_sum(trades, 10))
+  [fail] train +2.01 (DSR 0.60)  val -1.79 (DSR 0.00)  min(((ts_mean(ts_delta(open, 20), 3) * ts_sum(volume, 10)) - ts_cov((open * open), low, 10)), -ts_sum(trades, 10))
+  [fail] train +1.86 (DSR 0.48)  val +1.02 (DSR 0.14)  ts_sum((-trades * ts_cov(close, quote_volume, 10)), 40)
 ```
 
-The best formula the search found earns a Sharpe of +2.57 a year over four years of training data, after costs. Shown alone, that is a backtest people trade. The firewall rejects it on the training data already, because 7,228 tries at nothing would be expected to produce about +1.88 by luck, and its Deflated Sharpe is 0.92. On the next 16 months, which the search never saw, it loses money: −1.92 a year. Two other finalists stay positive out of sample (+1.67, +1.32), but 493 days is not enough to tell that apart from luck, and the SPA test says so (p = 0.45).
+The best formula the search found earns a Sharpe of +2.06 a year over four years of training data, after costs. Shown alone, that is a backtest people trade. The firewall rejects it on the training data already: 7,376 tries at nothing would be expected to produce about +1.88 by luck, so its Deflated Sharpe is only 0.64. On the next 16 months, which the search never saw, it loses money (−1.08 a year), and so does the runner-up (−1.79). The few finalists that stay positive out of sample (+1.02 at best) are well within what luck explains over 493 days (Reality Check p = 0.48), and PBO is 0.73: picking the in-sample best finalist usually picks a below-median one.
 
 So the honest result of this run is **no tradable alpha**, and the holdout (May 2025 to September 2026) stays sealed for a better search. That is the tool working: it is built to say "no" when the evidence is not there.
 
@@ -62,8 +62,8 @@ So the honest result of this run is **no tradable alpha**, and the holdout (May 
               │                        │                       │
               ▼                        ▼                       ▼
         Deflated Sharpe vs     Deflated Sharpe vs        combined survivors:
-        ALL trials             the finalists;            Sharpe, P(Sharpe > 0);
-                               Hansen SPA gate; PBO      every look logged
+        ALL trials             the finalists; Reality    Sharpe, P(Sharpe > 0);
+                               Check gate; PBO           every look logged
 ```
 
 1. **Search.** Genetic programming over an Alpha101-style formula language: ramped half-and-half initialisation, subtree crossover, point / subtree / hoist mutation, tournament selection, a parsimony penalty, and a novelty penalty against a hall of fame so it keeps finding *different* signals rather than near-copies (|corr| ≤ 0.7 between finalists). Fitness is the net long-short Sharpe on the train period only.
@@ -71,8 +71,8 @@ So the honest result of this run is **no tradable alpha**, and the holdout (May 
 3. **Firewall.** A finalist survives only if it passes all of:
    - **Train Deflated Sharpe ≥ 0.95** ([Bailey & López de Prado 2014](https://papers.ssrn.com/abstract=2460551)): the train Sharpe must beat the expected maximum of *N* unskilled strategies, where *N* is the whole ledger.
    - **Validation Sharpe > 0 with Deflated Sharpe ≥ 0.95**, deflated for the number of finalists scored on the unseen validation days.
-   - **Hansen's SPA test, p < 0.05** ([Hansen 2005](https://doi.org/10.1198/073500105000000063)), a global gate on validation returns: is the best finalist better than flat once you allow for having looked at all of them? Stationary bootstrap, studentised, with Hansen's consistent recentring. White's Reality Check ([White 2000](https://doi.org/10.1111/1468-0262.00152)) is reported alongside.
-   - **PBO** ([Bailey, Borwein, López de Prado & Zhu 2017](https://papers.ssrn.com/abstract=2326253)) is reported for the procedure as a whole: combinatorially symmetric cross-validation over 16 blocks (12,870 splits), the share where the in-sample winner lands in the bottom half out of sample.
+   - **White's Reality Check, p < 0.05** ([White 2000](https://doi.org/10.1111/1468-0262.00152)), a global gate on validation returns: is the best finalist better than flat once you allow for having looked at all of them? Stationary bootstrap (mean block 10, 1,000 draws). Hansen's SPA test ([Hansen 2005](https://doi.org/10.1198/073500105000000063)), the studentised version with consistent recentring, is reported alongside but is not the gate: at this sample size its measured size is 8–9% at a nominal 5%, while the Reality Check holds 4.5–6% ([`scripts/snoop_size.py`](scripts/snoop_size.py), 1,000 null simulations per setting).
+   - **PBO** ([Bailey, Borwein, López de Prado & Zhu 2017](https://papers.ssrn.com/abstract=2326253)) is reported, computed over the finalists' train + validation returns: combinatorially symmetric cross-validation over 16 blocks (12,870 splits), the share where the in-sample best finalist lands in the bottom half out of sample.
 4. **Holdout.** The search and validation never receive the holdout days: the panel is physically truncated before they run. `falsealpha unseal` scores the survivors and their equal-risk combination on the holdout once; a second look needs `--force`, and the report shows every look.
 
 **One deliberate deviation from the DSR paper.** The paper sets the luck bar from the variance of Sharpe ratios *across* trials. In a search that finds something real, dozens of variants of that signal inflate that variance and the test ends up punishing the discovery (on the planted data it rejects a true signal with a Sharpe of 9). falsealpha uses the null variance, 1/(T−1): the expected best of *N* strategies with no skill. Counting every distinct formula as a trial overstates the number of independent trials, so the bar is conservative. The paper's version is still computed and stored (`sr0_train_paper`).
@@ -131,13 +131,13 @@ NaN rules: a time-series window must be full of real data; cross-sectional ops o
 - **O(1) rolling sums** with a periodic rebuild so floating-point drift can't build up; **van Herk / Gil-Werman** sliding min/max; `decay_linear` by recurrence.
 - **Exact second moments.** `ts_std`, `ts_zscore`, `ts_corr` and `ts_cov` are computed two-pass over each window. Running-moment updates (sums of squares, even rolling Welford) lose relative precision when a quiet window follows a volatile history at a high price level; the test suite has the random walk that proves it.
 - **Common subexpressions** within a formula are computed once; only repeated subtrees are cached, so memory stays at about one panel per tree level.
-- **Parallel over formulas**, deterministic for a given seed regardless of thread count; the GIL is released.
+- **Parallel over formulas**, deterministic for a given seed regardless of thread count (on one platform: C++ standard libraries draw random numbers differently); the GIL is released.
 
 **Verified, not assumed:**
 - every operator matches an independent, loop-per-window numpy reference to 1e-9 (relative), including NaN holes, universe masks, constant columns and 3,000-day random walks at a price level of 5,000,000;
 - a property test perturbs every input after day *k* and checks no operator's output on or before day *k* moves (no look-ahead, by construction);
 - the Deflated Sharpe reproduces the worked example in Bailey & López de Prado (2014) (SR₀ = 0.1132, DSR = 0.9004);
-- SPA and Reality Check reject at about their nominal rate on noise and with power on a real edge; PBO averages about 0.5 on noise and about 0 with a dominant strategy;
+- the Reality Check rejects at about its nominal 5% on noise (SPA over-rejects at this sample size, measured and documented above) and both have power on a real edge; PBO averages about 0.5 on noise and about 0 with a dominant strategy;
 - the search recovers a planted alpha, the firewall passes it and rejects pure noise;
 - C++ tests run under AddressSanitizer and UBSan in CI.
 
@@ -162,7 +162,7 @@ Apple M3 Pro (11 cores), 2,000 days × 500 assets, best of 3:
 | `ts_rank(close, 20)` | 10.3 ms | 1,076 ms | 104× |
 | `decay_linear(close, 20)` | 3.6 ms | 520 ms | 145× |
 
-The honest reading: on operators pandas implements in C (`rank`, rolling mean/std/corr) the gain is 1–6×, and `ts_std` / `ts_corr` deliberately pay for an exact two-pass computation. The large gains are on window operators pandas can only do through Python-level `rolling().apply()`. In a search, the parallelism is over formulas, so throughput scales with cores: the default noise run above scored 6,003 formulas over 2,500 days × 60 assets in about 5 seconds.
+The honest reading: on operators pandas implements in C (`rank`, rolling mean/std/corr) the gain is 1–6×, and `ts_std` / `ts_corr` deliberately pay for an exact two-pass computation. The large gains are on window operators pandas can only do through Python-level `rolling().apply()`. In a search, the parallelism is over formulas, so throughput scales with cores: the default noise run above scored 6,002 formulas over 2,500 days × 60 assets in about 5 seconds.
 
 `falsealpha bench` reproduces this. The pandas side evaluates the *identical* formula text (canonical formulas are valid Python expressions) with the usual pandas idioms: `rolling()`, `rank(axis=1, pct=True)`, `rolling().apply()` where pandas has no built-in. Where the definitions coincide the two agree to 1e-8 (tested). Most of falsealpha's single-thread time is `rank`, a sort per day, which pandas also does in compiled code; the big gaps come from window operators pandas can only do through Python-level `apply`.
 
@@ -183,6 +183,7 @@ The honest reading: on operators pandas implements in C (`rank`, rolling mean/st
 - A delisted asset is assumed sold at its last close. Real exits can be worse.
 - The holdout seal is an honour system with an audit trail (the look log and a fingerprint of the panel file), not cryptography.
 - Counting distinct formulas as trials is conservative; clustering trials into independent groups would give a sharper luck bar.
+- `falsealpha eval` shows validation results for any formula you type, and those looks are not counted. Hand-testing ideas on validation is a search the firewall cannot see; keep it to train, or count it yourself.
 
 ## Development
 

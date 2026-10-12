@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <stdexcept>
 
 namespace fa {
@@ -153,9 +154,13 @@ struct Parser {
     }
 };
 
+// Shortest text that parses back to exactly v (the ledger keys on it).
 std::string fmt_number(double v) {
     char buf[32];
-    std::snprintf(buf, sizeof buf, "%.10g", v);
+    for (int digits = 15; digits <= 17; ++digits) {
+        std::snprintf(buf, sizeof buf, "%.*g", digits, v);
+        if (std::strtod(buf, nullptr) == v) break;
+    }
     return buf;
 }
 

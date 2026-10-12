@@ -97,7 +97,8 @@ def build(run_dir: str | Path) -> str:
     if v["pbo"]:
         tiles.append((f"{v['pbo']['pbo']:.2f}", "PBO", "probability the search overfit (0.5 = coin flip)"))
     if v["snoop"]:
-        tiles.append((f"{v['snoop']['spa_p']:.3f}", "SPA p-value", "is the best finalist better than luck?"))
+        tiles.append((f"{v['snoop']['reality_check_p']:.3f}", "Reality Check p",
+                      f"is the best finalist better than luck? (SPA p {v['snoop']['spa_p']:.3f})"))
     if looks and looks[-1].get("combined"):
         c = looks[-1]["combined"]
         tiles.append((f"{c['sharpe_annual']:+.2f}", "holdout Sharpe /yr", f"combined survivors, {c['days']} days"))
@@ -215,7 +216,7 @@ out of sample; the share there is the PBO.</p><div class=card id=pbo></div></div
 
 <h2>Finalists</h2>
 <p class=muted>Pass = train DSR ≥ 0.95 against all trials, validation Sharpe &gt; 0 with DSR ≥ 0.95 against the
-finalists, and the SPA gate open. Sharpe ratios annualised.</p>
+finalists, and the Reality Check gate open. Sharpe ratios annualised.</p>
 <div class="card tablewrap"><table><thead><tr><th class=num>#</th><th>formula</th><th class=num>train Sharpe</th>
 <th class=num>train DSR</th><th class=num>val Sharpe</th><th class=num>val DSR</th><th>verdict</th><th>why</th></tr>
 </thead><tbody>%TABLE%</tbody></table></div>
@@ -224,9 +225,10 @@ finalists, and the SPA gate open. Sharpe ratios annualised.</p>
 <div class=card>%LOOKS%</div>
 <details><summary>How to read this</summary>
 <p><b>DSR</b> (Deflated Sharpe Ratio, Bailey &amp; López de Prado 2014): probability the true Sharpe beats the best
-you'd expect from that many unskilled tries. <b>SPA</b> (Hansen 2005): p-value that the best finalist's validation
-returns beat zero after accounting for having looked at all finalists. <b>PBO</b> (Bailey, Borwein, López de Prado
-&amp; Zhu 2017): how often picking the in-sample best leads to a below-median strategy out of sample. The holdout
+you'd expect from that many unskilled tries. <b>Reality Check</b> (White 2000): p-value that the best finalist's
+validation returns beat zero after accounting for having looked at all finalists; <b>SPA</b> (Hansen 2005) is the
+studentised version, shown for reference. <b>PBO</b> (Bailey, Borwein, López de Prado &amp; Zhu 2017): how often
+picking the in-sample best finalist leads to a below-median one out of sample. The holdout
 is never shown to the search and opens once; every look is logged.</p></details>
 </main>
 <script>

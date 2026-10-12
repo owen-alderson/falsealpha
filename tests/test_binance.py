@@ -42,6 +42,31 @@ def test_lives_split_on_long_gaps():
     assert [len(x) for x in lives] == [3, 2]
 
 
+def test_gap_rule_is_more_than_n_missing_days():
+    def days(gap):
+        return np.array(["2022-01-01", str(np.datetime64("2022-01-01") + gap + 1)], dtype="datetime64[D]")
+
+    assert len(binance.lives(days(7), gap_days=7)) == 1  # exactly 7 missing days: same asset
+    assert len(binance.lives(days(8), gap_days=7)) == 2
+
+
+def test_corrupt_download_is_not_cached(tmp_path, monkeypatch):
+    import pytest
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("X-1d-2020-01.csv", "1,2,3")
+    data = bytearray(buf.getvalue())
+    data[data.index(b"1,2,3")] ^= 0xFF  # flip a byte inside the stored file: CRC mismatch
+    key = "data/spot/monthly/klines/XUSDT/1d/XUSDT-1d-2020-01.zip"
+    monkeypatch.setattr(binance, "symbols", lambda: ["XUSDT"])
+    monkeypatch.setattr(binance, "_list", lambda prefix: ([], [key]))
+    monkeypatch.setattr(binance, "_get", lambda url: bytes(data))
+    with pytest.raises(OSError, match="corrupt"):
+        binance.download(tmp_path, log=lambda *_: None)
+    assert not list(tmp_path.rglob("*.zip"))
+
+
 def test_panel_from_cache(tmp_path):
     n = 120
     # BIG trades a lot for the whole period; DEAD is liquid then delisted after 90 days;

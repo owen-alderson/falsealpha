@@ -14,11 +14,14 @@ and validation and holdout are scored after the fact. Tests, in order:
    independent trials (near-copies are correlated), so the test is conservative.
 2. Validation Deflated Sharpe. The finalists are fresh trials on unseen days,
    deflated for the number of finalists.
-3. Hansen's SPA and White's Reality Check on validation. Is the best finalist
-   better than flat after allowing for the fact that we looked at all of them?
-   This is a global gate: if it fails, nothing survives.
-4. PBO by CSCV over train + validation, a property of the whole procedure:
-   how often the in-sample winner lands in the bottom half out of sample.
+3. White's Reality Check on validation: is the best finalist better than flat
+   after allowing for the fact that we looked at all of them? This is a global
+   gate: if it fails, nothing survives. Hansen's SPA (studentised, consistent
+   recentring) is reported too, but not used as the gate: with ~500 validation
+   days and 50 finalists its measured size is 8-9% at a nominal 5% (1,000 null
+   simulations), while the Reality Check holds 4.5-6%.
+4. PBO by CSCV over the finalists' train + validation returns: how often the
+   in-sample winner among them lands in the bottom half out of sample.
 
 A finalist survives if it passes 1 and 2 with a positive validation Sharpe
 and the gate in 3 is open.
@@ -81,7 +84,7 @@ def run(ledger_sharpe: np.ndarray, nets: np.ndarray, train: slice, val: slice, t
 
     excess = np.nan_to_num(nets[:, val], nan=0.0)
     out["snoop"] = _core.snoop_tests(excess, t.bootstraps, t.mean_block, t.seed)
-    gate = out["snoop"]["spa_p"] < t.snoop_alpha
+    gate = out["snoop"]["reality_check_p"] < t.snoop_alpha
 
     span = np.nan_to_num(nets[:, train.start:val.stop], nan=0.0)
     if K >= 2 and span.shape[1] >= 2 * t.pbo_blocks:
@@ -98,7 +101,7 @@ def run(ledger_sharpe: np.ndarray, nets: np.ndarray, train: slice, val: slice, t
         elif not va["dsr"] >= t.dsr:
             reasons.append(f"validation DSR {va['dsr']:.3f} < {t.dsr}")
         if not gate:
-            reasons.append(f"SPA p {out['snoop']['spa_p']:.3f} >= {t.snoop_alpha} (gate closed)")
+            reasons.append(f"Reality Check p {out['snoop']['reality_check_p']:.3f} >= {t.snoop_alpha} (gate closed)")
         row["passed"] = not reasons
         row["reasons"] = reasons
         if not reasons:

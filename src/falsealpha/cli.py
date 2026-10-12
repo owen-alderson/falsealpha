@@ -90,9 +90,9 @@ def _print_verdict(v: dict, ppy: float) -> None:
     print(f"\n{v['n_trials']} formulas tried -> {v['n_finalists']} finalists -> {len(v['survivors'])} survivors")
     print(f"  luck bar (train): best of {v['n_trials']} unskilled strategies ~ Sharpe {_ann(v['sr0_train'], ppy)} /yr")
     if v["snoop"]:
-        print(f"  SPA p {v['snoop']['spa_p']:.3f}   Reality Check p {v['snoop']['reality_check_p']:.3f}")
+        print(f"  Reality Check p {v['snoop']['reality_check_p']:.3f} (gate)   SPA p {v['snoop']['spa_p']:.3f}")
     if v["pbo"]:
-        print(f"  PBO {v['pbo']['pbo']:.2f}  (share of splits where the in-sample winner lands in the bottom half)")
+        print(f"  PBO {v['pbo']['pbo']:.2f}  (share of splits where the in-sample best finalist lands in the bottom half)")
     for f in v["finalists"][:10]:
         mark = "PASS" if f["passed"] else "fail"
         print(f"  [{mark}] train {_ann(f['train']['sharpe'], ppy)} (DSR {f['train']['dsr']:.2f})  "

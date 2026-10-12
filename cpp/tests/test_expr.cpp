@@ -46,3 +46,9 @@ TEST_CASE("bad formulas are rejected") {
                           "ts_corr(close, volume, 2)", "close +", "close close"})
         REQUIRE_THROWS_AS(parse(s), std::invalid_argument);
 }
+
+TEST_CASE("constants print exactly, so distinct formulas never share a ledger key") {
+    REQUIRE(to_string(parse("close * 1.00000000001")) != to_string(parse("close * 1.00000000002")));
+    REQUIRE(to_string(parse("close * 0.1")) == "(0.1 * close)");
+    REQUIRE(to_string(parse("close + 0.001")) == "(0.001 + close)");
+}

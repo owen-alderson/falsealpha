@@ -25,8 +25,8 @@ def series(op, x, d, y=None):
     out = np.full(x.shape, np.nan)
     if op in ("ts_delay", "ts_delta"):
         for t in range(d, x.shape[0]):
+            ok = np.isfinite(x[t - d : t + 1]).all(axis=0)
             now, then = x[t], x[t - d]
-            ok = np.isfinite(now) & np.isfinite(then)
             out[t] = np.where(ok, then if op == "ts_delay" else now - then, np.nan)
         return out
     for t, w in _windows(x, d):

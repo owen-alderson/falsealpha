@@ -23,7 +23,7 @@ def test_planted_alpha_survives(planted_run):
     assert v["survivors"], "the planted alpha should survive"
     best = v["finalists"][v["survivors"][0]]
     assert "volume" in best["formula"]
-    assert v["snoop"]["spa_p"] < 0.01
+    assert v["snoop"]["reality_check_p"] < 0.01
     assert v["pbo"]["pbo"] < 0.1
 
 

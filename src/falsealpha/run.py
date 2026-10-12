@@ -123,7 +123,7 @@ def mine(panel_path: str | Path, run_dir: str | Path, cfg: MineConfig, splits: S
         finalists.append({"formula": h["formula"], "fitness": h["fitness"], **v})
     verdict = {**verdict, "finalists": finalists}
     verdict["weights"] = firewall.combine(nets[verdict["survivors"]], val).tolist() if verdict["survivors"] else []
-    (run_dir / "finalists.json").write_text(json.dumps(verdict, indent=2, default=_json_default))
+    (run_dir / "finalists.json").write_text(json.dumps(_strict(verdict), indent=2, allow_nan=False))
     np.save(run_dir / "nets.npy", nets)
     return verdict
 
@@ -159,7 +159,7 @@ def unseal(run_dir: str | Path, force: bool = False) -> dict:
         look["combined"] = _holdout_stats(combo, ppy)
         look["combined_net"] = combo.tolist()
     log["looks"].append(look)
-    log_path.write_text(json.dumps(log, indent=2, default=_json_default))
+    log_path.write_text(json.dumps(_strict(log), indent=2, allow_nan=False))
     return look
 
 
@@ -172,9 +172,15 @@ def _holdout_stats(net: np.ndarray, ppy: float) -> dict:
             "total_return": float(curve[-1]) if len(curve) else 0.0, "days": m["n"]}
 
 
-def _json_default(x):
-    if isinstance(x, np.ndarray):
-        return x.tolist()
-    if isinstance(x, np.generic):
-        return x.item()
-    raise TypeError(type(x))
+def _strict(x):
+    """NaN/inf -> null, so the run files are strict JSON."""
+    if isinstance(x, dict):
+        return {k: _strict(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return [_strict(v) for v in x]
+    if isinstance(x, (np.ndarray, np.generic)):
+        return _strict(x.tolist())
+    if isinstance(x, float) and not math.isfinite(x):
+        return None
+    return x
+

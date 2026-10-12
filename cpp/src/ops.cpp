@@ -225,11 +225,15 @@ Mat apply_series(Op op, const Mat& a, const Mat* b, int d) {
     Mat out(T, N);
 
     if (op == Op::Delay || op == Op::Delta) {
-        for (std::size_t t = D; t < T; ++t)
-            for (std::size_t n = 0; n < N; ++n) {
-                double now = a(t, n), then = a(t - D, n);
-                if (fin(now) && fin(then)) out(t, n) = op == Op::Delay ? then : now - then;
-            }
+        // Like every window op, the whole window [t-d, t] must be real data: a
+        // gap in between (e.g. a redenomination during a suspension) masks it.
+        Rolling nan_count(a, d + 1);
+        for (std::size_t t = 0; t < T; ++t) {
+            nan_count.step(t);
+            if (t < D) continue;
+            for (std::size_t n = 0; n < N; ++n)
+                if (nan_count.bad[n] == 0) out(t, n) = op == Op::Delay ? a(t - D, n) : a(t, n) - a(t - D, n);
+        }
         return out;
     }
     if (op == Op::TsMax || op == Op::TsMin) return sliding_extreme(a, d, op == Op::TsMax);
