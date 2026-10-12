@@ -92,11 +92,11 @@ def run(ledger_sharpe: np.ndarray, nets: np.ndarray, train: slice, val: slice, t
         tr, va = row["train"], row["validation"]
         reasons = []
         if not tr["dsr"] >= t.dsr:
-            reasons.append(f"train DSR {tr['dsr']:.2f} < {t.dsr}")
+            reasons.append(f"train DSR {tr['dsr']:.3f} < {t.dsr}")
         if not va["sharpe"] > 0:
             reasons.append("validation Sharpe <= 0")
         elif not va["dsr"] >= t.dsr:
-            reasons.append(f"validation DSR {va['dsr']:.2f} < {t.dsr}")
+            reasons.append(f"validation DSR {va['dsr']:.3f} < {t.dsr}")
         if not gate:
             reasons.append(f"SPA p {out['snoop']['spa_p']:.3f} >= {t.snoop_alpha} (gate closed)")
         row["passed"] = not reasons
