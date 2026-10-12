@@ -1,0 +1,60 @@
+# Push a version tag (e.g. v0.1.0) to build wheels, test them, and publish to PyPI
+# via Trusted Publishing (no tokens). Finishes green only once pip can install it.
+# Pull requests build and test the wheels too, without publishing.
+name: Publish to PyPI
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+
+jobs:
+  wheels:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pypa/cibuildwheel@v4.2.1
+        env:
+          CIBW_SKIP: "pp* *-musllinux_* cp3??t-*"
+          CIBW_ARCHS_MACOS: "arm64 x86_64"  # Intel wheels cross-built on the Apple Silicon runner
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+          CIBW_TEST_EXTRAS: dev
+          CIBW_TEST_COMMAND: pytest -q {project}/tests
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  sdist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: pipx run build --sdist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  publish:
+    needs: [wheels, sdist]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # lets PyPI verify this workflow instead of a stored token
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Wait until pip can install it  # PyPI's CDN can serve the old index for a few minutes
+        run: |
+          for i in $(seq 30); do
+            pip download --no-deps --no-cache-dir --only-binary=:all: -q -d /tmp/check "falsealpha==${GITHUB_REF_NAME#v}" && exit 0
+            sleep 10
+          done
+          exit 1
