@@ -242,7 +242,7 @@ function frame(host,h){const W=host.clientWidth-32||600,m={l:46,r:12,t:10,b:26};
   const tip=document.createElement("div");tip.className="tip";host.appendChild(tip);
   return {svg,tip,W,H:h,m,iw:W-m.l-m.r,ih:h-m.t-m.b}}
 function yAxis(f,lo,hi,fmt){const y=v=>f.m.t+f.ih*(1-(v-lo)/(hi-lo||1));
-  for(const v of ticks(lo,hi,4)){el("line",{x1:f.m.l,x2:f.W-f.m.r,y1:y(v),y2:y(v),stroke:css("--grid"),"stroke-width":1},f.svg);
+  for(const v of ticks(lo,hi,5)){el("line",{x1:f.m.l,x2:f.W-f.m.r,y1:y(v),y2:y(v),stroke:css("--grid"),"stroke-width":1},f.svg);
     const t=el("text",{x:f.m.l-6,y:y(v)+4,"text-anchor":"end"},f.svg);t.textContent=fmt(v)}return y}
 function showTip(f,html,px,py){f.tip.innerHTML=html;f.tip.style.display="block";
   const r=f.tip.getBoundingClientRect(),W=f.svg.parentNode.clientWidth;

@@ -5,6 +5,8 @@
 
 **A C++ engine that searches thousands of formulaic trading signals, then tells you which of its own discoveries are fake.**
 
+![falsealpha mining six years of Binance data](docs/demo.gif)
+
 Search hard enough and you will always find a backtest that looks good. falsealpha does the search fast in C++20, records every formula it tried, and keeps a result only if it beats the luck it took to find it.
 
 ```
@@ -28,7 +30,28 @@ combined: holdout Sharpe +4.08 /yr, P(true Sharpe > 0) 1.00, 498 days
 
 Across 30 independent noise panels (1,500 days × 60 assets, population 200 × 6 generations; [`scripts/noise_calibration.py`](scripts/noise_calibration.py)), the firewall let through **0** formulas. The SPA gate opened by chance in 2 of the 30 runs (a 5% test should do that about 1.5 times), and the Deflated Sharpe still caught everything. Mean PBO was 0.49, a coin flip, which is what overfitting to noise looks like.
 
-%REAL_RESULTS%
+## On real data: six years of crypto
+
+The default search on every Binance USDT pair that was ever in the daily top 100 by dollar volume: 2,465 days × 570 assets, delisted coins included, 10 bps costs, trading one day after the signal.
+
+```
+$ falsealpha data binance --out data/binance-top100.npz
+$ falsealpha mine data/binance-top100.npz runs/crypto        # 45 s on an M3 Pro
+7228 formulas tried -> 50 finalists -> 0 survivors
+  luck bar (train): best of 7228 unskilled strategies ~ Sharpe +1.88 /yr
+  SPA p 0.446   Reality Check p 0.608
+  PBO 0.44  (share of splits where the in-sample winner lands in the bottom half)
+  [fail] train +2.57 (DSR 0.92)  val -1.92 (DSR 0.00)  (((ts_sum(ts_argmin(quote_volume, 20), 10) / ts_mean(rank(trades), 5)) - (demean(open) * ts_rank(low, 20))) - vwap)
+  [fail] train +1.89 (DSR 0.51)  val +1.67 (DSR 0.36)  -ts_sum(ts_cov(close, ts_rank(trades, 5), 10), 40)
+  [fail] train +1.73 (DSR 0.38)  val +1.32 (DSR 0.22)  ts_min((ts_delay(high, 40) - vwap), 40)
+```
+
+The best formula the search found earns a Sharpe of +2.57 a year over four years of training data, after costs. Shown alone, that is a backtest people trade. The firewall rejects it on the training data already, because 7,228 tries at nothing would be expected to produce about +1.88 by luck, and its Deflated Sharpe is 0.92. On the next 16 months, which the search never saw, it loses money: −1.92 a year. Two other finalists stay positive out of sample (+1.67, +1.32), but 493 days is not enough to tell that apart from luck, and the SPA test says so (p = 0.45).
+
+So the honest result of this run is **no tradable alpha**, and the holdout (May 2025 to September 2026) stays sealed for a better search. That is the tool working: it is built to say "no" when the evidence is not there.
+
+![Run report](docs/report.png)
+
 
 ## How it works
 
@@ -64,7 +87,7 @@ falsealpha data noise   --out noise.npz     # random data, no alpha at all
 falsealpha mine planted.npz runs/planted    # search + firewall + runs/planted/report.html
 falsealpha unseal runs/planted              # look at the holdout, once
 
-falsealpha data binance --out binance.npz   # every USDT pair since 2018, delisted included (~10 min first time)
+falsealpha data binance --out binance.npz   # every USDT pair, delisted included (~10 min download the first time)
 falsealpha info binance.npz
 falsealpha eval binance.npz "-rank(ts_delta(close, 5))"
 falsealpha mine binance.npz runs/crypto
@@ -147,9 +170,10 @@ The honest reading: on operators pandas implements in C (`rank`, rolling mean/st
 
 **Crypto (built in).** Binance's public dump ([data.binance.vision](https://data.binance.vision)) keeps every spot pair's daily candles, including pairs that were delisted, which is what makes a survivorship-free universe possible. The loader:
 - drops stablecoins, fiat pairs and leveraged tokens;
-- splits a ticker into separate assets when it goes more than 30 days without candles (LUNAUSDT runs straight through the May 2022 collapse into the relaunched coin);
+- splits a ticker into separate assets when it goes more than 7 days without candles (LUNAUSDT resumes 18 days after the May 2022 collapse as a different coin);
 - handles the switch from millisecond to microsecond timestamps in 2025;
-- builds the universe each day from data up to that day: the top *N* by trailing 30-day dollar volume, with at least 60 days of history.
+- builds the universe each day from data up to that day: the top *N* by trailing 30-day dollar volume, with at least 60 days of history;
+- starts the panel in 2020 by default: before that Binance had fewer than 40 liquid USDT pairs on a typical day, too few for cross-sectional ranks (earlier data still counts as history).
 
 **US equities (planned).** Free daily data with delisted names is scarce. The plan is point-in-time S&P 500 membership ([fja05680/sp500](https://github.com/fja05680/sp500)) plus Tiingo's free tier, which carries delisted tickers, with results reported three ways (survivors only, point-in-time, and a delisting-loss stress) so the remaining bias is visible. yfinance can't be used: it has no delisted tickers and returns a different company for reused ones.
 

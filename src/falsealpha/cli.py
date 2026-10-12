@@ -145,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("source", choices=["binance", "planted", "noise"])
     d.add_argument("--out", required=True)
     d.add_argument("--top", type=int, default=100, help="binance: universe size (default 100)")
-    d.add_argument("--start", default="2018-01-01")
+    d.add_argument("--start", default="2020-01-01", help="binance: first day (earlier data still feeds history)")
     d.add_argument("--end")
     d.add_argument("--cache", default=str(DEFAULT_CACHE))
     d.add_argument("--workers", type=int, default=16)

@@ -5,13 +5,15 @@ Delisted pairs stay in the dump, which is what makes a survivorship-free
 universe possible. Three traps handled here:
 
 - Timestamps switch from milliseconds to microseconds in 2025.
-- Tickers get reused: LUNAUSDT runs straight through the May 2022 collapse into
-  the relaunched LUNA. A gap of more than `gap_days` without candles splits a
-  symbol into separate assets ("LUNAUSDT", "LUNAUSDT~2").
+- Tickers get reused: LUNAUSDT runs through the May 2022 collapse into the
+  relaunched LUNA after only 18 days without candles. A gap of more than
+  `gap_days` (default 7) splits a symbol into separate assets ("LUNAUSDT",
+  "LUNAUSDT~2"); splitting too eagerly only costs a restart of history.
 - Stablecoins, fiat and leveraged tokens are not crypto risk; they are dropped.
 
 The universe on day t is the `top` assets by trailing 30-day dollar volume,
-using only data up to day t.
+using only data up to day t. History before `start` still counts towards
+`min_history` and liquidity, so the universe is full from the first day.
 """
 
 from __future__ import annotations
@@ -165,8 +167,8 @@ def lives(days: np.ndarray, gap_days: int) -> list[np.ndarray]:
     return np.split(days, cuts)
 
 
-def build_panel(cache: Path, top: int = 100, start: str = "2018-01-01", end: str | None = None,
-                min_history: int = 60, gap_days: int = 30, liquidity_days: int = 30) -> Panel:
+def build_panel(cache: Path, top: int = 100, start: str = "2020-01-01", end: str | None = None,
+                min_history: int = 60, gap_days: int = 7, liquidity_days: int = 30) -> Panel:
     cache = Path(cache)
     series: dict[str, dict[np.datetime64, list[float]]] = {}
     for folder in sorted(p for p in cache.iterdir() if p.is_dir() and tradable(p.name)):
@@ -177,7 +179,7 @@ def build_panel(cache: Path, top: int = 100, start: str = "2018-01-01", end: str
     if not series:
         raise ValueError(f"no cached candles under {cache}; run the download first")
 
-    first = np.datetime64(start, "D")
+    first = min(min(s) for s in series.values())  # build from the earliest candle, trim to start below
     last = max(max(s) for s in series.values()) if end is None else np.datetime64(end, "D")
     dates = np.arange(first, last + 1, dtype="datetime64[D]")
     T = len(dates)
@@ -207,14 +209,18 @@ def build_panel(cache: Path, top: int = 100, start: str = "2018-01-01", end: str
     np.put_along_axis(universe, idx, True, axis=1)
     universe &= eligible
 
-    keep = universe.any(axis=0)
-    names = [nm for nm, k_ in zip(names, keep) if k_]
-    sel = lambda a: np.ascontiguousarray(a[:, keep])  # noqa: E731
-    o, h, lo, c, vol, qv, trades, universe = (sel(a) for a in (o, h, lo, c, vol, qv, trades, universe))
     with np.errstate(divide="ignore", invalid="ignore"):
         vwap = np.where(vol > 0, qv / vol, np.nan)
         returns = np.full_like(c, np.nan)
         returns[1:] = c[1:] / c[:-1] - 1
+
+    rows = dates >= np.datetime64(start, "D")
+    keep = universe[rows].any(axis=0)
+    names = [nm for nm, k_ in zip(names, keep) if k_]
+    sel = lambda a: np.ascontiguousarray(a[rows][:, keep])  # noqa: E731
+    o, h, lo, c, vol, qv, vwap, returns, trades, universe = (
+        sel(a) for a in (o, h, lo, c, vol, qv, vwap, returns, trades, universe))
+    dates = dates[rows]
     fields = dict(zip(FIELDS, [o, h, lo, c, vol, qv, vwap, returns, trades]))
-    source = f"binance spot USDT daily, top {top} by {liquidity_days}d dollar volume, {start}..{last}"
+    source = f"binance spot USDT daily, top {top} by {liquidity_days}d dollar volume, {dates[0]}..{dates[-1]}"
     return Panel(dates, names, fields, universe, source, periods_per_year=365.0)
