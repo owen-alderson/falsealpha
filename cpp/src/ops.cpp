@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <memory>
 #include <numeric>
 
 namespace fa {
@@ -17,50 +19,35 @@ bool fin(double x) { return std::isfinite(x); }
 // are rebuilt from scratch every kRefresh steps.
 constexpr std::size_t kRefresh = 512;
 
-// Running sums are kept relative to a per-asset pivot (an observed value) so
-// that a large price level does not cancel away the variance.
-// Zero-variance rule on raw values: var <= kZeroVar * mean(x^2).
-double variance(double s, double ss, double pivot, int d) {
-    double var = (ss - s * s / d) / (d - 1);
-    double raw_ms = (ss + 2 * pivot * s) / d + pivot * pivot;
+double variance(double m2, double mean, int d) {
+    double var = m2 / (d - 1);
+    double raw_ms = mean * mean + m2 / d;  // zero-variance rule on raw values
     return var <= kZeroVar * raw_ms ? 0.0 : var;
 }
 
-// Shared machinery for windowed sum-type ops: tracks, per asset, the sums of
-// x, x^2 (and y, y^2, xy when b is given) over the trailing window, shifted
-// by pivots px/py, plus how many non-finite entries the window holds.
+// Rolling window sum and count of non-finite entries, per asset, O(1) per step.
+// A sum's rounding error is relative to its own terms, so it stays accurate.
 struct Rolling {
     const Mat& a;
-    const Mat* b;
     int d;
     std::size_t N;
-    std::vector<double> px, py, sx, sxx, sy, syy, sxy;
+    std::vector<double> sx;
     std::vector<int> bad;
 
-    Rolling(const Mat& a_, const Mat* b_, int d_)
-        : a(a_), b(b_), d(d_), N(a_.N), px(N, NaN), py(N, NaN), sx(N), sxx(N), sy(N), syy(N), sxy(N), bad(N) {}
+    Rolling(const Mat& a_, int d_) : a(a_), d(d_), N(a_.N), sx(N), bad(N) {}
 
     void add(std::size_t t, double sign) {
         const double* x = a.row(t);
-        const double* y = b ? b->row(t) : nullptr;
         for (std::size_t n = 0; n < N; ++n) {
-            double xv = x[n], yv = y ? y[n] : 0.0;
-            if (!fin(xv) || (y && !fin(yv))) { bad[n] += sign > 0 ? 1 : -1; continue; }
-            // A pivot is only ever set while this asset's sums are still empty.
-            if (std::isnan(px[n])) { px[n] = xv; py[n] = yv; }
-            xv -= px[n]; yv -= py[n];
-            sx[n] += sign * xv;
-            sxx[n] += sign * xv * xv;
-            if (y) { sy[n] += sign * yv; syy[n] += sign * yv * yv; sxy[n] += sign * xv * yv; }
+            if (fin(x[n])) sx[n] += sign * x[n];
+            else bad[n] += sign > 0 ? 1 : -1;
         }
     }
     // Advance so the window ends at t.
     void step(std::size_t t) {
         if (t % kRefresh == 0 && t >= static_cast<std::size_t>(d)) {
-            std::fill(sx.begin(), sx.end(), 0.0); std::fill(sxx.begin(), sxx.end(), 0.0);
-            std::fill(sy.begin(), sy.end(), 0.0); std::fill(syy.begin(), syy.end(), 0.0);
-            std::fill(sxy.begin(), sxy.end(), 0.0); std::fill(bad.begin(), bad.end(), 0);
-            std::fill(px.begin(), px.end(), NaN); std::fill(py.begin(), py.end(), NaN);
+            std::fill(sx.begin(), sx.end(), 0.0);
+            std::fill(bad.begin(), bad.end(), 0);
             for (std::size_t u = t - d + 1; u <= t; ++u) add(u, +1);
             return;
         }
@@ -68,8 +55,63 @@ struct Rolling {
         if (t >= static_cast<std::size_t>(d)) add(t - d, -1);
     }
     bool full(std::size_t t, std::size_t n) const { return t + 1 >= static_cast<std::size_t>(d) && bad[n] == 0; }
-    double mean_x(std::size_t n) const { return px[n] + sx[n] / d; }
 };
+
+// Second moments are computed exactly, two passes over each window
+// (vectorised across assets). Running updates of a variance lose relative
+// precision whenever a window is much tighter than the history behind it,
+// e.g. a quiet week after a volatile month at a high price level.
+Mat moments_op(Op op, const Mat& a, const Mat* b, int d) {
+    std::size_t T = a.T, N = a.N, D = static_cast<std::size_t>(d);
+    Mat out(T, N);
+    Rolling nx(a, d);
+    std::unique_ptr<Rolling> ny = b ? std::make_unique<Rolling>(*b, d) : nullptr;
+    std::vector<double> mx(N), my(N), qx(N), qy(N), qxy(N);
+    for (std::size_t t = 0; t < T; ++t) {
+        nx.step(t);
+        if (ny) ny->step(t);
+        if (t + 1 < D) continue;
+        std::fill(mx.begin(), mx.end(), 0.0); std::fill(my.begin(), my.end(), 0.0);
+        std::fill(qx.begin(), qx.end(), 0.0); std::fill(qy.begin(), qy.end(), 0.0);
+        std::fill(qxy.begin(), qxy.end(), 0.0);
+        for (std::size_t u = t + 1 - D; u <= t; ++u) {
+            const double* x = a.row(u);
+            for (std::size_t n = 0; n < N; ++n) mx[n] += x[n];
+            if (b) { const double* y = b->row(u); for (std::size_t n = 0; n < N; ++n) my[n] += y[n]; }
+        }
+        for (std::size_t n = 0; n < N; ++n) { mx[n] /= d; my[n] /= d; }
+        for (std::size_t u = t + 1 - D; u <= t; ++u) {
+            const double* x = a.row(u);
+            if (b) {
+                const double* y = b->row(u);
+                for (std::size_t n = 0; n < N; ++n) {
+                    double zx = x[n] - mx[n], zy = y[n] - my[n];
+                    qx[n] += zx * zx; qy[n] += zy * zy; qxy[n] += zx * zy;
+                }
+            } else {
+                for (std::size_t n = 0; n < N; ++n) { double zx = x[n] - mx[n]; qx[n] += zx * zx; }
+            }
+        }
+        const double* x = a.row(t);
+        double* o = out.row(t);
+        for (std::size_t n = 0; n < N; ++n) {
+            if (!nx.full(t, n) || (ny && !ny->full(t, n))) continue;
+            double var = variance(qx[n], mx[n], d);
+            switch (op) {
+                case Op::TsStd: o[n] = std::sqrt(var); break;
+                case Op::TsZscore: if (var > 0) o[n] = (x[n] - mx[n]) / std::sqrt(var); break;
+                case Op::TsCov: o[n] = qxy[n] / (d - 1); break;
+                case Op::TsCorr: {
+                    double vy = variance(qy[n], my[n], d);
+                    if (var > 0 && vy > 0) o[n] = std::clamp(qxy[n] / (d - 1) / std::sqrt(var * vy), -1.0, 1.0);
+                    break;
+                }
+                default: throw std::logic_error("not a moment op");
+            }
+        }
+    }
+    return out;
+}
 
 // van Herk / Gil-Werman sliding max (or min): O(1) per cell, vectorised over
 // assets. g = running extreme from each block start, h = from each block end.
@@ -85,7 +127,7 @@ Mat sliding_extreme(const Mat& a, int d, bool want_max) {
         bool end = (t + 1) % d == 0 || t + 1 == T;
         for (std::size_t n = 0; n < N; ++n) h(t, n) = end ? a(t, n) : pick(h(t + 1, n), a(t, n));
     }
-    Rolling nan_count(a, nullptr, d);
+    Rolling nan_count(a, d);
     for (std::size_t t = 0; t < T; ++t) {
         nan_count.step(t);
         if (t + 1 < static_cast<std::size_t>(d)) continue;
@@ -127,7 +169,9 @@ Mat apply_cross(Op op, const Mat& a, const Data& d) {
     std::size_t T = a.T, N = a.N;
     Mat out(T, N);
     std::vector<std::size_t> idx;
+    std::vector<std::pair<double, std::uint32_t>> kv;
     idx.reserve(N);
+    kv.reserve(N);
     for (std::size_t t = 0; t < T; ++t) {
         const double* x = a.row(t);
         double* o = out.row(t);
@@ -138,12 +182,14 @@ Mat apply_cross(Op op, const Mat& a, const Data& d) {
         if (m == 0) continue;
         if (op == Op::Rank) {
             // Percentile rank in [0, 1]; ties share their average rank.
-            std::sort(idx.begin(), idx.end(), [x](std::size_t i, std::size_t j) { return x[i] < x[j]; });
+            kv.clear();
+            for (auto n : idx) kv.emplace_back(x[n], static_cast<std::uint32_t>(n));
+            std::sort(kv.begin(), kv.end());
             for (std::size_t i = 0; i < m;) {
                 std::size_t j = i;
-                while (j + 1 < m && x[idx[j + 1]] == x[idx[i]]) ++j;
+                while (j + 1 < m && kv[j + 1].first == kv[i].first) ++j;
                 double r = m == 1 ? 0.5 : 0.5 * (i + j) / (m - 1);
-                for (std::size_t k = i; k <= j; ++k) o[idx[k]] = r;
+                for (std::size_t k = i; k <= j; ++k) o[kv[k].second] = r;
                 i = j + 1;
             }
             continue;
@@ -190,7 +236,7 @@ Mat apply_series(Op op, const Mat& a, const Mat* b, int d) {
 
     if (op == Op::TsArgmax || op == Op::TsArgmin || op == Op::TsRank) {
         // O(d) per cell; windows are short and these ops are rare in the search.
-        Rolling nan_count(a, nullptr, d);
+        Rolling nan_count(a, d);
         for (std::size_t t = 0; t < T; ++t) {
             nan_count.step(t);
             if (t + 1 < D) continue;
@@ -223,7 +269,7 @@ Mat apply_series(Op op, const Mat& a, const Mat* b, int d) {
         // Weights d, d-1, ..., 1 (today heaviest). With S_{t-1} the plain sum of
         // the window ending yesterday, W_t = W_{t-1} + d*x_t - S_{t-1}.
         // Non-finite values enter both sums as 0; such windows are masked.
-        Rolling nan_count(a, nullptr, d);
+        Rolling nan_count(a, d);
         std::vector<double> w(N, 0.0), s(N, 0.0);
         double norm = d * (d + 1) / 2.0;
         auto val = [&](std::size_t t, std::size_t n) { double v = a(t, n); return fin(v) ? v : 0.0; };
@@ -249,36 +295,16 @@ Mat apply_series(Op op, const Mat& a, const Mat* b, int d) {
         return out;
     }
 
-    Rolling r(a, b, d);
+    if (op == Op::TsStd || op == Op::TsZscore || op == Op::TsCov || op == Op::TsCorr)
+        return moments_op(op, a, b, d);
+    if (op != Op::TsSum && op != Op::TsMean) throw std::logic_error("not a time-series op");
+    Rolling r(a, d);
     for (std::size_t t = 0; t < T; ++t) {
         r.step(t);
         if (t + 1 < D) continue;
-        const double* x = a.row(t);
         double* o = out.row(t);
-        for (std::size_t n = 0; n < N; ++n) {
-            if (!r.full(t, n)) continue;
-            double sx = r.sx[n], sxx = r.sxx[n], px = r.px[n];
-            switch (op) {
-                case Op::TsSum: o[n] = sx + d * px; break;
-                case Op::TsMean: o[n] = r.mean_x(n); break;
-                case Op::TsStd: o[n] = std::sqrt(variance(sx, sxx, px, d)); break;
-                case Op::TsZscore: {
-                    double var = variance(sx, sxx, px, d);
-                    if (var > 0) o[n] = (x[n] - r.mean_x(n)) / std::sqrt(var);
-                    break;
-                }
-                case Op::TsCov: o[n] = (r.sxy[n] - sx * r.sy[n] / d) / (d - 1); break;
-                case Op::TsCorr: {
-                    double vx = variance(sx, sxx, px, d), vy = variance(r.sy[n], r.syy[n], r.py[n], d);
-                    if (vx > 0 && vy > 0) {
-                        double cov = (r.sxy[n] - sx * r.sy[n] / d) / (d - 1);
-                        o[n] = std::clamp(cov / std::sqrt(vx * vy), -1.0, 1.0);
-                    }
-                    break;
-                }
-                default: throw std::logic_error("not a time-series op");
-            }
-        }
+        for (std::size_t n = 0; n < N; ++n)
+            if (r.full(t, n)) o[n] = op == Op::TsSum ? r.sx[n] : r.sx[n] / d;
     }
     return out;
 }
