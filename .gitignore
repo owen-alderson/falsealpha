@@ -8,3 +8,4 @@ data/
 runs/
 .pytest_cache/
 .env
+build.log
