@@ -27,14 +27,14 @@ def _finish(T: int, N: int, fields: dict[str, np.ndarray], ret: np.ndarray, sour
     return Panel(dates, [f"A{n:03d}" for n in range(N)], fields, np.ones((T, N), bool), source)
 
 
-def noise(T: int = 1500, N: int = 60, seed: int = 0) -> Panel:
+def noise(T: int = 2500, N: int = 60, seed: int = 0) -> Panel:
     rng = np.random.default_rng(seed)
     fields = _base(T, N, rng)
     ret = rng.normal(0, 0.02, (T, N))
     return _finish(T, N, fields, ret, f"synthetic noise seed={seed}")
 
 
-def planted(formula: str = "rank(ts_mean(volume, 5))", beta: float = 0.004, T: int = 1500, N: int = 60,
+def planted(formula: str = "rank(ts_mean(volume, 5))", beta: float = 0.004, T: int = 2500, N: int = 60,
             seed: int = 0) -> Panel:
     if re.search(r"\b(close|returns)\b", formula):
         raise ValueError("a planted formula may only use volume: close and returns are generated from it")

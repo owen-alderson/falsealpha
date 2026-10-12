@@ -121,6 +121,12 @@ def cmd_report(a: argparse.Namespace) -> None:
     print(report.write(a.run))
 
 
+def cmd_bench(a: argparse.Namespace) -> None:
+    from . import bench
+
+    bench.run(a.days, a.assets, a.repeat)
+
+
 def cmd_ops(a: argparse.Namespace) -> None:
     for o in _core.operators():
         args = ", ".join(["x", "y"][: o["arity"]] + (["d"] if o["window"] else []))
@@ -146,7 +152,7 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--no-download", action="store_true", help="binance: use the cache as is")
     d.add_argument("--formula", default="rank(ts_mean(volume, 5))", help="planted: the hidden alpha")
     d.add_argument("--beta", type=float, default=0.004, help="planted: its strength")
-    d.add_argument("--days", type=int, default=1500)
+    d.add_argument("--days", type=int, default=2500)
     d.add_argument("--assets", type=int, default=60)
     d.add_argument("--seed", type=int, default=0)
     d.set_defaults(fn=cmd_data)
@@ -186,6 +192,12 @@ def main(argv: list[str] | None = None) -> int:
     r = sub.add_parser("report", help="regenerate a run's HTML report")
     r.add_argument("run")
     r.set_defaults(fn=cmd_report)
+
+    b = sub.add_parser("bench", help="time Alpha101-style formulas: C++ core vs pandas")
+    b.add_argument("--days", type=int, default=2000)
+    b.add_argument("--assets", type=int, default=500)
+    b.add_argument("--repeat", type=int, default=3)
+    b.set_defaults(fn=cmd_bench)
 
     o = sub.add_parser("ops", help="list the formula operators")
     o.set_defaults(fn=cmd_ops)
