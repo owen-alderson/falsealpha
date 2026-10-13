@@ -1,6 +1,7 @@
 # falsealpha
 
 [![CI](https://github.com/owen-alderson/falsealpha/actions/workflows/ci.yml/badge.svg)](https://github.com/owen-alderson/falsealpha/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/falsealpha.svg)](https://pypi.org/project/falsealpha/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **A C++ engine that searches thousands of formulaic trading signals, then tells you which of its own discoveries are fake.**
