@@ -246,32 +246,46 @@ Mat apply_series(Op op, const Mat& a, const Mat* b, int d) {
     }
     if (op == Op::TsMax || op == Op::TsMin) return sliding_extreme(a, d, op == Op::TsMax);
 
-    if (op == Op::TsArgmax || op == Op::TsArgmin || op == Op::TsRank) {
-        // O(d) per cell; windows are short and these ops are rare in the search.
+    if (op == Op::TsArgmax || op == Op::TsArgmin) {
+        // Days since the extreme (0 = today); ties go to the most recent.
+        // O(d) per cell, a whole row per step (vectorised across assets).
+        Rolling nan_count(a, d);
+        std::vector<double> best(N), lag(N);
+        bool want_max = op == Op::TsArgmax;
+        for (std::size_t t = 0; t < T; ++t) {
+            nan_count.step(t);
+            if (t + 1 < D) continue;
+            std::copy(a.row(t), a.row(t) + N, best.begin());
+            std::fill(lag.begin(), lag.end(), 0.0);
+            for (std::size_t k = 1; k < D; ++k) {
+                const double* v = a.row(t - k);
+                for (std::size_t n = 0; n < N; ++n) {
+                    bool better = want_max ? v[n] > best[n] : v[n] < best[n];
+                    best[n] = better ? v[n] : best[n];
+                    lag[n] = better ? static_cast<double>(k) : lag[n];
+                }
+            }
+            for (std::size_t n = 0; n < N; ++n)
+                if (!nan_count.bad[n]) out(t, n) = lag[n];
+        }
+        return out;
+    }
+
+    if (op == Op::TsRank) {
+        // O(d) per cell; windows are short.
         Rolling nan_count(a, d);
         for (std::size_t t = 0; t < T; ++t) {
             nan_count.step(t);
             if (t + 1 < D) continue;
             for (std::size_t n = 0; n < N; ++n) {
                 if (nan_count.bad[n]) continue;
-                double cur = a(t, n);
-                if (op == Op::TsRank) {
-                    double below = 0, equal = 0;
-                    for (std::size_t k = 0; k < D; ++k) {
-                        double v = a(t - k, n);
-                        below += v < cur;
-                        equal += v == cur;
-                    }
-                    out(t, n) = (below + 0.5 * (equal - 1)) / (d - 1);
-                } else {
-                    // Days since the extreme (0 = today); ties go to the most recent.
-                    std::size_t best = 0;
-                    for (std::size_t k = 1; k < D; ++k) {
-                        double v = a(t - k, n), bv = a(t - best, n);
-                        if (op == Op::TsArgmax ? v > bv : v < bv) best = k;
-                    }
-                    out(t, n) = static_cast<double>(best);
+                double cur = a(t, n), below = 0, equal = 0;
+                for (std::size_t k = 0; k < D; ++k) {
+                    double v = a(t - k, n);
+                    below += v < cur;
+                    equal += v == cur;
                 }
+                out(t, n) = (below + 0.5 * (equal - 1)) / (d - 1);
             }
         }
         return out;

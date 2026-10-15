@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "falsealpha"
-version = "0.1.0"
+version = "0.2.0"
 description = "A C++ alpha-mining engine that searches formulaic trading signals, then tells you which of its discoveries are fake."
 readme = "README.md"
 requires-python = ">=3.10"

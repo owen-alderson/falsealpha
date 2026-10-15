@@ -92,7 +92,8 @@ def build(run_dir: str | Path) -> str:
         "split": {"val": cfg["index"]["val_start"], "hold": hold_start},
         "curves": [{"name": c["name"], "values": c["values"]} for c in curves],
         "hist": {"counts": hist_counts.tolist(), "edges": edges.tolist(),
-                 "luck": _finite(yearly(v["sr0_train"]))},
+                 "luck": _finite(yearly(v["sr0_train"])),
+                 "luck_effective": _finite(yearly(v["sr0_train_effective"])) if "n_effective" in v else None},
         "pbo": v["pbo"]["logits"] if v["pbo"] else [],
         "progress": progress,
     }
@@ -100,6 +101,11 @@ def build(run_dir: str | Path) -> str:
     looks = holdout["looks"]
     tiles = [
         (f"{v['n_trials']:,}", "formulas tried", "every distinct formula counts against the winners"),
+    ]
+    if "n_effective" in v:
+        tiles.append((f"≈{v['n_effective']:,}", "independent bets", "trial clusters (|corr| > "
+                      f"{cfg['search']['max_corr']}); shown for scale, the tests count every formula"))
+    tiles += [
         (str(v["n_finalists"]), "finalists", "diverse best of the search (|corr| ≤ "
          f"{cfg['search']['max_corr']})"),
         (str(len(survivors)), "survivors", "passed every test below"),
@@ -119,6 +125,7 @@ def build(run_dir: str | Path) -> str:
                   else f'<span class="st bad" title="{html.escape("; ".join(f["reasons"]))}">✕ fail</span>')
         return (f"<tr><td class=num>{i + 1}</td><td class=formula><code>{html.escape(f['formula'])}</code></td>"
                 f"<td class=num>{_fmt(yearly(tr['sharpe']), '+.2f')}</td><td class=num>{_fmt(tr['dsr'], '.2f')}</td>"
+                f"<td class=num>{_fmt(tr.get('dsr_effective'), '.2f')}</td>"
                 f"<td class=num>{_fmt(yearly(va['sharpe']), '+.2f')}</td><td class=num>{_fmt(va['dsr'], '.2f')}</td>"
                 f"<td>{status}</td><td class=why>{html.escape('; '.join(f['reasons']))}</td></tr>")
 
@@ -153,6 +160,8 @@ def build(run_dir: str | Path) -> str:
             .replace("%LOOKS%", look_html)
             .replace("%LUCK%", _fmt(yearly(v["sr0_train"]), "+.2f"))
             .replace("%NTRIALS%", f"{v['n_trials']:,}")
+            .replace("%LUCKEFF%", f"; counting only the ≈{v['n_effective']:,} trial clusters it is "
+                     f"{_fmt(yearly(v['sr0_train_effective']), '+.2f')}/yr" if "n_effective" in v else "")
             .replace("%DATA%", json.dumps(payload, allow_nan=False, default=_finite)
                      .replace("</", "<\\/")))
 
@@ -213,7 +222,7 @@ details{margin-top:8px;color:var(--ink2);font-size:13.5px}
 <div class=grid2>
 <div><h2>Trial Sharpe ratios vs the luck bar</h2>
 <p class=muted>Train Sharpe of all %NTRIALS% trials, annualised. The line is the best Sharpe expected from that many
-<em>unskilled</em> strategies (%LUCK%/yr).</p><div class=card id=hist></div></div>
+<em>unskilled</em> strategies (%LUCK%/yr)%LUCKEFF%.</p><div class=card id=hist></div></div>
 <div><h2>PBO: in-sample winner's out-of-sample rank</h2>
 <p class=muted>One logit per train/validation split (CSCV). Left of 0 the in-sample winner lands in the bottom half
 out of sample; the share there is the PBO.</p><div class=card id=pbo></div></div>
@@ -227,7 +236,7 @@ out of sample; the share there is the PBO.</p><div class=card id=pbo></div></div
 <p class=muted>Pass = train DSR ≥ 0.95 against all trials, validation Sharpe &gt; 0 with DSR ≥ 0.95 against the
 finalists, and the Reality Check gate open. Sharpe ratios annualised.</p>
 <div class="card tablewrap"><table><thead><tr><th class=num>#</th><th>formula</th><th class=num>train Sharpe</th>
-<th class=num>train DSR</th><th class=num>val Sharpe</th><th class=num>val DSR</th><th>verdict</th><th>why</th></tr>
+<th class=num>train DSR</th><th class=num title="train DSR against the number of trial clusters instead of every formula">DSR vs clusters</th><th class=num>val Sharpe</th><th class=num>val DSR</th><th>verdict</th><th>why</th></tr>
 </thead><tbody>%TABLE%</tbody></table></div>
 
 <h2>Holdout</h2>
@@ -272,9 +281,9 @@ function bars(id,counts,edges,refs,fmt){const host=document.getElementById(id);
     hit.addEventListener("pointerleave",()=>f.tip.style.display="none")});
   el("line",{x1:f.m.l,x2:f.W-f.m.r,y1:y(0),y2:y(0),stroke:css("--axis")},f.svg);
   for(const v of ticks(lo,hi,6)){const t=el("text",{x:x(v),y:f.H-6,"text-anchor":"middle"},f.svg);t.textContent=fmt(v)}
-  for(const r of refs){if(r.at==null||r.at<lo||r.at>hi)continue;
-    el("line",{x1:x(r.at),x2:x(r.at),y1:f.m.t,y2:y(0),stroke:css("--ink"),"stroke-width":1.5,"stroke-dasharray":"4 3"},f.svg);
-    const t=el("text",{x:x(r.at)+5,y:f.m.t+10},f.svg);t.textContent=r.label;t.style.fill=css("--ink2")}}
+  refs.forEach((r,i)=>{if(r.at==null||r.at<lo||r.at>hi)return;
+    el("line",{x1:x(r.at),x2:x(r.at),y1:f.m.t,y2:y(0),stroke:css(i?"--ink2":"--ink"),"stroke-width":1.5,"stroke-dasharray":i?"2 3":"4 3"},f.svg);
+    const t=el("text",{x:x(r.at)+5,y:f.m.t+10+14*i},f.svg);t.textContent=r.label;t.style.fill=css("--ink2")})}
 
 function lines(id,xs,series,opts){const host=document.getElementById(id);
   if(!series.length){host.textContent="No finalists.";return}
@@ -308,7 +317,7 @@ function draw(){for(const id of ["eq","hist","pbo","prog"])document.getElementBy
   const pct=v=>(v*100).toFixed(0)+"%";
   lines("eq",D.dates,D.curves,{fmt:pct,xfmt:s=>s.slice(0,7),zero:true,
     bands:[{from:D.split.val,to:D.split.hold,label:"validation"},{from:D.split.hold,to:D.dates.length-1,label:"holdout"}]});
-  bars("hist",D.hist.counts,D.hist.edges,[{at:D.hist.luck,label:"luck bar"}],v=>v.toFixed(1));
+  bars("hist",D.hist.counts,D.hist.edges,[{at:D.hist.luck,label:"luck bar"},{at:D.hist.luck_effective,label:"clusters"}],v=>v.toFixed(1));
   if(D.pbo.length){const lo=Math.min(...D.pbo,-0.5),hi=Math.max(...D.pbo,0.5),k=24,e=[...Array(k+1)].map((_,i)=>lo+(hi-lo)*i/k),
     c=Array(k).fill(0);for(const v of D.pbo)c[Math.min(k-1,Math.floor((v-lo)/(hi-lo)*k))]++;
     bars("pbo",c,e,[{at:0,label:"0"}],v=>v.toFixed(1))}else document.getElementById("pbo").textContent="Not enough finalists.";

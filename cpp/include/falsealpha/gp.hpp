@@ -25,7 +25,7 @@ struct SearchConfig {
     std::size_t train_begin = 0, train_end = 0;  // fitness is measured on days [begin, end)
     ScoreConfig score;
     double parsimony = 0.0005;  // per node, in per-period Sharpe units
-    double max_corr = 0.7;      // above this |corr| with a better hall member a formula is a near-copy
+    double max_corr = 0.7;      // above this |corr| a formula is a near-copy (hall of fame, trial clusters)
     int hall_size = 50;
     std::uint64_t seed = 1;
     int threads = 0;            // 0 = all cores
@@ -33,10 +33,15 @@ struct SearchConfig {
 
 // One row of the trial ledger: every distinct formula the search ever scored.
 // The Deflated Sharpe Ratio needs all of them, not just the winners.
+// Near-copies are not independent trials, so trials are also clustered by
+// their train returns: a trial joins the first cluster whose leader it
+// matches with |corr| > max_corr, or leads a new one. The number of clusters
+// estimates the number of independent trials.
 struct Trial {
     std::string formula;
     double sharpe = 0, mean_ic = 0, turnover = 0;  // train window, per period; NaN if degenerate
     int size = 0, generation = 0;
+    int cluster = -1;  // -1 if degenerate
 };
 
 struct Finalist {

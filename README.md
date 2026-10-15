@@ -15,6 +15,7 @@ $ falsealpha data noise --out noise.npz          # 2,500 days x 60 assets of pur
 $ falsealpha mine noise.npz runs/noise
 6002 formulas tried -> 50 finalists -> 0 survivors
   luck bar (train): best of 6002 unskilled strategies ~ Sharpe +1.84 /yr
+  trial clusters: ~709 independent bets -> luck bar +1.56 /yr (reported; the gate counts every formula)
   Reality Check p 0.942 (gate)   SPA p 0.800
   PBO 0.95  (share of splits where the in-sample best finalist lands in the bottom half)
 
@@ -22,6 +23,7 @@ $ falsealpha data planted --out planted.npz      # same, plus one hidden alpha
 $ falsealpha mine planted.npz runs/planted
 6397 formulas tried -> 50 finalists -> 3 survivors
   luck bar (train): best of 6397 unskilled strategies ~ Sharpe +1.85 /yr
+  trial clusters: ~667 independent bets -> luck bar +1.55 /yr (reported; the gate counts every formula)
   Reality Check p 0.000 (gate)   SPA p 0.000
   PBO 0.00  (share of splits where the in-sample best finalist lands in the bottom half)
   [PASS] train +5.87 (DSR 1.00)  val +4.94 (DSR 1.00)  (decay_linear(ts_sum(volume, 3), 5) * ts_sum(volume, 5))
@@ -29,7 +31,7 @@ $ falsealpha unseal runs/planted
 combined: holdout Sharpe +4.08 /yr, P(true Sharpe > 0) 1.00, 498 days
 ```
 
-Across 30 independent noise panels (1,500 days × 60 assets, population 200 × 6 generations; [`scripts/noise_calibration.py`](scripts/noise_calibration.py)), the firewall let through **0** formulas. The Reality Check gate never opened (0 of 30); the Deflated Sharpe alone would also have caught everything. Mean PBO was 0.49, a coin flip, which is what overfitting to noise looks like.
+Across 30 independent noise panels (1,500 days × 60 assets, population 200 × 6 generations; [`scripts/noise_calibration.py`](scripts/noise_calibration.py)), the firewall let through **0** formulas. The Reality Check gate never opened (0 of 30); the Deflated Sharpe alone would also have caught everything, even counting only the trial clusters as independent bets (0 of 30 runs had a finalist reach a train DSR of 0.95 either way). Mean PBO was 0.49, a coin flip, which is what overfitting to noise looks like.
 
 ## On real data: six years of crypto
 
@@ -40,6 +42,7 @@ $ falsealpha data binance --out data/binance-top100.npz
 $ falsealpha mine data/binance-top100.npz runs/crypto        # 45 s on an M3 Pro
 7376 formulas tried -> 50 finalists -> 0 survivors
   luck bar (train): best of 7376 unskilled strategies ~ Sharpe +1.88 /yr
+  trial clusters: ~1197 independent bets -> luck bar +1.64 /yr (reported; the gate counts every formula)
   Reality Check p 0.475 (gate)   SPA p 0.185
   PBO 0.73  (share of splits where the in-sample best finalist lands in the bottom half)
   [fail] train +2.06 (DSR 0.64)  val -1.08 (DSR 0.00)  min(((quote_volume / ts_mean(ts_delta(open, 20), 5)) - high), -ts_sum(trades, 10))
@@ -47,7 +50,7 @@ $ falsealpha mine data/binance-top100.npz runs/crypto        # 45 s on an M3 Pro
   [fail] train +1.86 (DSR 0.48)  val +1.02 (DSR 0.14)  ts_sum((-trades * ts_cov(close, quote_volume, 10)), 40)
 ```
 
-The best formula the search found earns a Sharpe of +2.06 a year over four years of training data, after costs. Shown alone, that is a backtest people trade. The firewall rejects it on the training data already: 7,376 tries at nothing would be expected to produce about +1.88 by luck, so its Deflated Sharpe is only 0.64. On the next 16 months, which the search never saw, it loses money (−1.08 a year), and so does the runner-up (−1.79). The few finalists that stay positive out of sample (+1.02 at best) are well within what luck explains over 493 days (Reality Check p = 0.48), and PBO is 0.73: picking the in-sample best finalist usually picks a below-median one.
+The best formula the search found earns a Sharpe of +2.06 a year over four years of training data, after costs. Shown alone, that is a backtest people trade. The firewall rejects it on the training data already: 7,376 tries at nothing would be expected to produce about +1.88 by luck, so its Deflated Sharpe is only 0.64. Many of those tries are near-copies of each other; grouping them (|corr| > 0.7) leaves about 1,197 independent bets, a luck bar of +1.64, and a Deflated Sharpe of 0.80: still a fail, so the verdict does not rest on the conservative count. On the next 16 months, which the search never saw, it loses money (−1.08 a year), and so does the runner-up (−1.79). The few finalists that stay positive out of sample (+1.02 at best) are well within what luck explains over 493 days (Reality Check p = 0.48), and PBO is 0.73: picking the in-sample best finalist usually picks a below-median one.
 
 So the honest result of this run is **no tradable alpha**, and the holdout (May 2025 to September 2026) stays sealed for a better search. That is the tool working: it is built to say "no" when the evidence is not there.
 
@@ -68,7 +71,7 @@ So the honest result of this run is **no tradable alpha**, and the holdout (May 
 ```
 
 1. **Search.** Genetic programming over an Alpha101-style formula language: ramped half-and-half initialisation, subtree crossover, point / subtree / hoist mutation, tournament selection, a parsimony penalty, and a novelty penalty against a hall of fame so it keeps finding *different* signals rather than near-copies (|corr| ≤ 0.7 between finalists). Fitness is the net long-short Sharpe on the train period only.
-2. **Ledger.** Every distinct formula the search scores is written to `ledger.csv.gz` (formulas are canonicalised, so `a + b` and `b + a` count once). This is the *N* in the multiple-testing correction, not just the winners.
+2. **Ledger.** Every distinct formula the search scores is written to `ledger.csv.gz` (formulas are canonicalised, so `a + b` and `b + a` count once). This is the *N* in the multiple-testing correction, not just the winners. Each formula is also assigned to a **trial cluster**: it joins the first cluster whose leader's train returns it matches with |corr| > 0.7, or leads a new one. The number of clusters estimates how many *independent* bets the search made.
 3. **Firewall.** A finalist survives only if it passes all of:
    - **Train Deflated Sharpe ≥ 0.95** ([Bailey & López de Prado 2014](https://papers.ssrn.com/abstract=2460551)): the train Sharpe must beat the expected maximum of *N* unskilled strategies, where *N* is the whole ledger.
    - **Validation Sharpe > 0 with Deflated Sharpe ≥ 0.95**, deflated for the number of finalists scored on the unseen validation days.
@@ -76,7 +79,7 @@ So the honest result of this run is **no tradable alpha**, and the holdout (May 
    - **PBO** ([Bailey, Borwein, López de Prado & Zhu 2017](https://papers.ssrn.com/abstract=2326253)) is reported, computed over the finalists' train + validation returns: combinatorially symmetric cross-validation over 16 blocks (12,870 splits), the share where the in-sample best finalist lands in the bottom half out of sample.
 4. **Holdout.** The search and validation never receive the holdout days: the panel is physically truncated before they run. `falsealpha unseal` scores the survivors and their equal-risk combination on the holdout once; a second look needs `--force`, and the report shows every look.
 
-**One deliberate deviation from the DSR paper.** The paper sets the luck bar from the variance of Sharpe ratios *across* trials. In a search that finds something real, dozens of variants of that signal inflate that variance and the test ends up punishing the discovery (on the planted data it rejects a true signal with a Sharpe of 9). falsealpha uses the null variance, 1/(T−1): the expected best of *N* strategies with no skill. Counting every distinct formula as a trial overstates the number of independent trials, so the bar is conservative. The paper's version is still computed and stored (`sr0_train_paper`).
+**One deliberate deviation from the DSR paper.** The paper sets the luck bar from the variance of Sharpe ratios *across* trials. In a search that finds something real, dozens of variants of that signal inflate that variance and the test ends up punishing the discovery (on the planted data it rejects a true signal with a Sharpe of 9). falsealpha uses the null variance, 1/(T−1): the expected best of *N* strategies with no skill. Counting every distinct formula as a trial overstates the number of independent trials, so the bar is conservative; the run reports how much by also deflating against the trial clusters (`n_effective`, `dsr_effective`, the "DSR vs clusters" column in the report), and the gate keeps the conservative count. The paper's version is still computed and stored (`sr0_train_paper`).
 
 ## Quick start
 

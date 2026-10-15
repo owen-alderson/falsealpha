@@ -171,13 +171,15 @@ PYBIND11_MODULE(_core, m) {
         py::dict ledger;
         std::vector<std::string> formula;
         std::vector<double> sharpe, ic, turnover;
-        std::vector<int> size, gen;
+        std::vector<int> size, gen, cluster;
         for (const auto& t : r.ledger) {
             formula.push_back(t.formula); sharpe.push_back(t.sharpe); ic.push_back(t.mean_ic);
             turnover.push_back(t.turnover); size.push_back(t.size); gen.push_back(t.generation);
+            cluster.push_back(t.cluster);
         }
         ledger["formula"] = formula; ledger["sharpe"] = to_array(sharpe); ledger["mean_ic"] = to_array(ic);
         ledger["turnover"] = to_array(turnover); ledger["size"] = size; ledger["generation"] = gen;
+        ledger["cluster"] = cluster;
         py::list hall;
         for (const auto& f : r.hall)
             hall.append(py::dict(py::arg("formula") = f.formula, py::arg("fitness") = f.fitness,

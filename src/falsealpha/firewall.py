@@ -12,6 +12,10 @@ and validation and holdout are scored after the fact. Tests, in order:
    and the test ends up punishing the discovery. We report it as a diagnostic.
    Counting every distinct formula as a trial overstates the number of
    independent trials (near-copies are correlated), so the test is conservative.
+   The search also clusters its trials by train returns (|corr| above the
+   near-copy threshold joins a cluster); the cluster count estimates the
+   effective number of independent trials, and the DSR against it is reported
+   next to the gate, to show how much the conservative count matters.
 2. Validation Deflated Sharpe. The finalists are fresh trials on unseen days,
    deflated for the number of finalists.
 3. White's Reality Check on validation: is the best finalist better than flat
@@ -56,15 +60,22 @@ def deflated(net: np.ndarray, n_trials: float) -> dict:
     return {"sharpe": sr, "sr0": sr0, "dsr": dsr, "n": m["n"], "skew": m["skew"], "kurt": m["kurt"]}
 
 
-def run(ledger_sharpe: np.ndarray, nets: np.ndarray, train: slice, val: slice, t: Thresholds) -> dict:
-    """nets: finalists x days (pre-holdout panel), NaN where a day has no position or target."""
-    trials = ledger_sharpe[np.isfinite(ledger_sharpe)]
+def run(ledger_sharpe: np.ndarray, ledger_cluster: np.ndarray, nets: np.ndarray, train: slice, val: slice,
+        t: Thresholds) -> dict:
+    """nets: finalists x days (pre-holdout panel), NaN where a day has no position or target.
+    ledger_cluster: each trial's cluster id (-1 if degenerate)."""
+    ok = np.isfinite(ledger_sharpe)
+    trials = ledger_sharpe[ok]
     n_trials = len(trials)
+    n_effective = len(np.unique(ledger_cluster[ok & (ledger_cluster >= 0)]))
     var_trials = float(np.var(trials, ddof=1)) if n_trials > 1 else 0.0
     K = len(nets)
 
-    rows = [{"train": deflated(nets[k, train], n_trials), "validation": deflated(nets[k, val], K)}
-            for k in range(K)]
+    rows = []
+    for k in range(K):
+        tr = deflated(nets[k, train], n_trials)
+        tr["dsr_effective"] = deflated(nets[k, train], n_effective)["dsr"]
+        rows.append({"train": tr, "validation": deflated(nets[k, val], K)})
     T_train = train.stop - train.start
 
     out = {
@@ -73,6 +84,8 @@ def run(ledger_sharpe: np.ndarray, nets: np.ndarray, train: slice, val: slice, t
         "null_sharpe_sd": 1 / math.sqrt(T_train - 1),
         "sr0_train": _core.expected_max_sharpe(1 / (T_train - 1), n_trials),
         "sr0_train_paper": _core.expected_max_sharpe(var_trials, n_trials),
+        "n_effective": n_effective,
+        "sr0_train_effective": _core.expected_max_sharpe(1 / (T_train - 1), n_effective),
         "n_finalists": K,
         "finalists": rows,
         "snoop": None,
