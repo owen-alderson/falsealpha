@@ -89,6 +89,9 @@ def cmd_mine(a: argparse.Namespace) -> None:
 def _print_verdict(v: dict, ppy: float) -> None:
     print(f"\n{v['n_trials']} formulas tried -> {v['n_finalists']} finalists -> {len(v['survivors'])} survivors")
     print(f"  luck bar (train): best of {v['n_trials']} unskilled strategies ~ Sharpe {_ann(v['sr0_train'], ppy)} /yr")
+    if "n_effective" in v:
+        print(f"  trial clusters: ~{v['n_effective']} independent bets -> luck bar {_ann(v['sr0_train_effective'], ppy)} /yr"
+              " (reported; the gate counts every formula)")
     if v["snoop"]:
         print(f"  Reality Check p {v['snoop']['reality_check_p']:.3f} (gate)   SPA p {v['snoop']['spa_p']:.3f}")
     if v["pbo"]:

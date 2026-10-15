@@ -99,7 +99,8 @@ def mine(panel_path: str | Path, run_dir: str | Path, cfg: MineConfig, splits: S
 
     hall = result["hall"]
     nets = np.array([h["net"] for h in hall]) if hall else np.zeros((0, hold_start))
-    verdict = firewall.run(result["ledger"]["sharpe"], nets, train, val, thresholds)
+    verdict = firewall.run(result["ledger"]["sharpe"], np.asarray(result["ledger"]["cluster"]), nets, train, val,
+                           thresholds)
 
     run_dir.mkdir(parents=True, exist_ok=True)
     config = {
@@ -127,9 +128,9 @@ def mine(panel_path: str | Path, run_dir: str | Path, cfg: MineConfig, splits: S
     ledger = result["ledger"]
     with gzip.open(run_dir / "ledger.csv.gz", "wt", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["formula", "train_sharpe", "train_mean_ic", "train_turnover", "size", "generation"])
+        w.writerow(["formula", "train_sharpe", "train_mean_ic", "train_turnover", "size", "generation", "cluster"])
         for row in zip(ledger["formula"], ledger["sharpe"], ledger["mean_ic"], ledger["turnover"],
-                       ledger["size"], ledger["generation"]):
+                       ledger["size"], ledger["generation"], ledger["cluster"]):
             w.writerow(row)
 
     finalists = []

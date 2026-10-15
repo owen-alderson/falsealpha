@@ -46,7 +46,7 @@ Backtest backtest(const Mat& signal, const Mat& returns, const Data& d, const Sc
         if (members.size() >= static_cast<std::size_t>(c.min_assets)) {
             sig.clear();
             for (auto n : members) sig.push_back(s[n]);
-            std::vector<double> rk = average_ranks(sig);
+            std::vector<double> rk = average_ranks(sig), sig_rk = rk;
             double mean = std::accumulate(rk.begin(), rk.end(), 0.0) / rk.size();
             double gross = 0;
             for (auto& x : rk) { x -= mean; gross += std::fabs(x); }
@@ -56,7 +56,9 @@ Backtest backtest(const Mat& signal, const Mat& returns, const Data& d, const Sc
             sig.clear(); tgt.clear();
             for (auto n : members)
                 if (std::isfinite(r[n])) { sig.push_back(s[n]); tgt.push_back(r[n]); }
-            if (sig.size() >= static_cast<std::size_t>(c.min_assets)) b.ic[t] = pearson(average_ranks(sig), average_ranks(tgt));
+            // Usually every member has a target, and the signal ranks are the ones just computed.
+            if (sig.size() < members.size()) sig_rk = average_ranks(sig);
+            if (sig.size() >= static_cast<std::size_t>(c.min_assets)) b.ic[t] = pearson(sig_rk, average_ranks(tgt));
         }
 
         double pnl = 0, turn = 0;

@@ -117,7 +117,46 @@ struct Scored {
     Summary train;
     std::vector<double> net;
     std::vector<double> hall_corr;  // |corr| with each hall member as of the start of this generation
+    std::vector<float> unit;        // train returns, demeaned, unit length (NaN days = mean)
+    int cluster = -1;
 };
+
+// Train returns as a demeaned unit vector, so a dot product is a correlation
+// (with NaN days at the mean). Empty if the series is constant.
+std::vector<float> unit_returns(const std::vector<double>& net, std::size_t begin, std::size_t end) {
+    double sum = 0, n = 0;
+    for (std::size_t t = begin; t < end; ++t)
+        if (std::isfinite(net[t])) { sum += net[t]; n += 1; }
+    if (n < 2) return {};
+    double mean = sum / n, ss = 0;
+    for (std::size_t t = begin; t < end; ++t)
+        if (std::isfinite(net[t])) ss += (net[t] - mean) * (net[t] - mean);
+    if (!(ss > 0)) return {};
+    double scale = 1 / std::sqrt(ss);
+    std::vector<float> u(end - begin, 0.0f);
+    for (std::size_t t = begin; t < end; ++t)
+        if (std::isfinite(net[t])) u[t - begin] = static_cast<float>((net[t] - mean) * scale);
+    return u;
+}
+
+float dot(const std::vector<float>& a, const std::vector<float>& b) {
+    // Eight running sums, so the compiler can vectorise without reassociating.
+    float acc[8] = {};
+    std::size_t n = a.size(), i = 0;
+    for (; i + 8 <= n; i += 8)
+        for (int j = 0; j < 8; ++j) acc[j] += a[i + j] * b[i + j];
+    float s = ((acc[0] + acc[1]) + (acc[2] + acc[3])) + ((acc[4] + acc[5]) + (acc[6] + acc[7]));
+    for (; i < n; ++i) s += a[i] * b[i];
+    return s;
+}
+
+// First leader in [from, to) that u matches with |corr| > threshold, or -1.
+int find_cluster(const std::vector<float>& u, const std::vector<std::vector<float>>& leaders, std::size_t from,
+                 std::size_t to, double threshold) {
+    for (std::size_t i = from; i < to; ++i)
+        if (std::fabs(dot(u, leaders[i])) > threshold) return static_cast<int>(i);
+    return -1;
+}
 
 }  // namespace
 
@@ -156,6 +195,7 @@ SearchResult search(const Data& d, const Mat& returns, const SearchConfig& c, co
     Builder build(c, rng);
     SearchResult result;
     std::unordered_map<std::string, double> fitness_cache;  // formula -> penalised fitness
+    std::vector<std::vector<float>> leaders;                 // one per trial cluster
 
     auto fits = [&](const Node& n) {
         return n.size() <= static_cast<std::size_t>(c.max_size) && n.depth() <= static_cast<std::size_t>(c.max_depth);
@@ -183,6 +223,7 @@ SearchResult search(const Data& d, const Mat& returns, const SearchConfig& c, co
         }
         std::vector<Scored> scored(todo.size());
         const auto& hall = result.hall;
+        std::size_t known_leaders = leaders.size();  // read-only while the workers run
         parallel_for(todo.size(), c.threads, [&](std::size_t j) {
             const Node& n = pop[todo[j]];
             Scored& s = scored[j];
@@ -191,6 +232,8 @@ SearchResult search(const Data& d, const Mat& returns, const SearchConfig& c, co
             s.train = summarize(b, c.train_begin, c.train_end);
             if (s.train.n < 2 || s.train.sd <= 0) return;  // degenerate: never trades
             s.raw = s.train.sharpe - c.parsimony * static_cast<double>(n.size());
+            s.unit = unit_returns(b.net, c.train_begin, c.train_end);
+            if (!s.unit.empty()) s.cluster = find_cluster(s.unit, leaders, 0, known_leaders, c.max_corr);
             s.fitness = s.raw;
             double worst = 0;
             s.hall_corr.resize(hall.size());
@@ -217,6 +260,14 @@ SearchResult search(const Data& d, const Mat& returns, const SearchConfig& c, co
             tr.sharpe = ok ? s.train.sharpe : NaN;
             tr.mean_ic = ok ? s.train.mean_ic : NaN;
             tr.turnover = ok ? s.train.turnover : NaN;
+            if (ok && !s.unit.empty()) {
+                if (s.cluster < 0) s.cluster = find_cluster(s.unit, leaders, known_leaders, leaders.size(), c.max_corr);
+                if (s.cluster < 0) {
+                    s.cluster = static_cast<int>(leaders.size());
+                    leaders.push_back(std::move(s.unit));
+                }
+                tr.cluster = s.cluster;
+            }
             result.ledger.push_back(tr);
             fitness_cache[s.formula] = s.fitness;
             if (!ok) continue;

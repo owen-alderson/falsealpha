@@ -105,3 +105,47 @@ def test_report_uses_the_panels_own_dates(tmp_path):
     run.mine(tmp_path / "b.npz", tmp_path / "run", run.MineConfig(population=40, generations=2, threads=2))
     html = report.build(tmp_path / "run")
     assert str(bdays[-1]) in html and str(np.datetime64("2015-01-01") + 899) not in html
+
+
+def _unit(net: np.ndarray) -> np.ndarray:
+    """Train returns as the search clusters them: demeaned, NaN days at the mean, unit length."""
+    z = np.where(np.isfinite(net), net - np.nanmean(net), 0.0)
+    return z / np.linalg.norm(z)
+
+
+def test_trials_are_clustered_into_independent_bets(planted_run):
+    import csv
+    import gzip
+
+    from falsealpha import _core
+    from falsealpha.panel import Panel
+
+    d, v = planted_run
+    with gzip.open(d / "run" / "ledger.csv.gz", "rt") as f:
+        rows = list(csv.DictReader(f))
+    ok = [r for r in rows if r["train_sharpe"] not in ("nan", "")]
+    clusters = [int(r["cluster"]) for r in ok]
+    assert sorted(set(clusters)) == list(range(len(set(clusters))))  # ids 0..K-1, in order of discovery
+    assert all(int(r["cluster"]) == -1 for r in rows if r not in ok)
+    assert v["n_effective"] == len(set(clusters)) < v["n_trials"] == len(ok)
+    assert v["sr0_train_effective"] < v["sr0_train"]
+    for f in v["finalists"]:
+        assert f["train"]["dsr_effective"] >= f["train"]["dsr"]
+
+    # Every member matches its leader (the cluster's first trial); leaders don't match each other.
+    cfg = json.loads((d / "run" / "config.json").read_text())
+    train = slice(*cfg["index"]["train"])
+    panel = Panel.load(d / "p.npz").head(cfg["index"]["hold_start"])
+    leader = {}
+    for r in ok:
+        leader.setdefault(int(r["cluster"]), r["formula"])
+    members = [r["formula"] for r in ok if leader[int(r["cluster"])] != r["formula"]][:40]
+    firsts = list(leader.values())[:40]
+    nets = {b_f: _unit(np.asarray(b["net"])[train]) for b_f, b in zip(
+        members + firsts, _core.backtest_many(members + firsts, "returns", panel.core(), delay=1, cost_bps=0))}
+    by_formula = {r["formula"]: int(r["cluster"]) for r in ok}
+    for m in members:
+        assert abs(nets[m] @ nets[leader[by_formula[m]]]) > 0.7 - 1e-4
+    for i, a in enumerate(firsts):
+        for b in firsts[:i]:
+            assert abs(nets[a] @ nets[b]) <= 0.7 + 1e-4

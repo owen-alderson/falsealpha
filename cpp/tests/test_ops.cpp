@@ -117,6 +117,39 @@ TEST_CASE("rolling state survives long series (drift refresh)") {
     }
 }
 
+TEST_CASE("moments stay exact in a quiet window after a volatile history") {
+    // The rolling sums behind the window means carry rounding drift from the
+    // huge earlier values; the corrected two-pass step must cancel it.
+    const std::size_t T = 400, N = 2, quiet = 300;
+    Data d;
+    d.T = T; d.N = N;
+    d.universe.assign(T * N, 1);
+    Mat c(T, N), v(T, N);
+    std::mt19937 rng(5);
+    std::normal_distribution<double> g(0.0, 1.0);
+    for (std::size_t t = 0; t < T; ++t) {
+        bool calm = t >= quiet;
+        c(t, 0) = calm ? 1.0 : 1e9 * (1 + 0.3 * g(rng));                    // then constant (a redenomination)
+        c(t, 1) = calm ? 1.0 + 1e-7 * g(rng) : 1e9 * (1 + 0.3 * g(rng));     // then barely moving
+        v(t, 0) = v(t, 1) = 1 + g(rng);
+    }
+    d.fields["close"] = c;
+    d.fields["volume"] = v;
+    Mat sd = evaluate(parse("ts_std(close, 20)"), d);
+    Mat z = evaluate(parse("ts_zscore(close, 20)"), d);
+    Mat cr = evaluate(parse("ts_corr(close, volume, 20)"), d);
+    for (std::size_t t = quiet + 19; t < T; ++t) {
+        REQUIRE(sd(t, 0) == 0.0);
+        REQUIRE(std::isnan(z(t, 0)));
+        REQUIRE(std::isnan(cr(t, 0)));
+        double m = 0, ss = 0;
+        for (std::size_t k = 0; k < 20; ++k) m += c(t - k, 1);
+        m /= 20;
+        for (std::size_t k = 0; k < 20; ++k) ss += (c(t - k, 1) - m) * (c(t - k, 1) - m);
+        REQUIRE(sd(t, 1) == Approx(std::sqrt(ss / 19)).epsilon(1e-9));
+    }
+}
+
 TEST_CASE("unknown fields are reported") {
     Data d = test::random_data(10, 3, 1);
     REQUIRE_THROWS_AS(evaluate(parse("rank(vwap)"), d), std::invalid_argument);
