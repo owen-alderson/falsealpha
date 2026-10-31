@@ -210,6 +210,10 @@ cmake -S . -B build -DFALSEALPHA_BUILD_TESTS=ON && cmake --build build -j && ./b
 
 ## Disclaimer
 
-Research software, not investment advice. Backtested results do not predict future returns. falsealpha is not affiliated with or endorsed by Binance: `falsealpha data binance` downloads Binance's public data dump (data.binance.vision) to your own machine, and that data stays under Binance's terms.
+Research software, not investment advice. Backtested results do not predict future returns. falsealpha is not affiliated with or endorsed by Binance.
 
-MIT licence.
+## Data and licences
+
+`falsealpha data binance` downloads Binance's public historical data from [Binance Vision](https://data.binance.vision) to your own machine. Binance licenses that data under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) with its own [dataset terms](https://data.binance.vision/Binance_Vision-Terms_of_Use.pdf): non-commercial use only, and anything you publish from it must credit Binance Vision and carry the same licence.
+
+The results in this README and `docs/report.png` are derived from Binance Vision data, so they are licensed CC BY-NC-SA 4.0, with credit to Binance Vision. The code is MIT.
