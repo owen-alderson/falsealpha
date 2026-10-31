@@ -208,4 +208,8 @@ cmake -S . -B build -DFALSEALPHA_BUILD_TESTS=ON && cmake --build build -j && ./b
 - C. R. Harvey, Y. Liu, H. Zhu (2016). …and the Cross-Section of Expected Returns. *Review of Financial Studies* 29(1).
 - Z. Kakushadze (2016). 101 Formulaic Alphas. *Wilmott* 2016(84). [arXiv:1601.00991](https://arxiv.org/abs/1601.00991)
 
+## Disclaimer
+
+Research software, not investment advice. Backtested results do not predict future returns. falsealpha is not affiliated with or endorsed by Binance: `falsealpha data binance` downloads Binance's public data dump (data.binance.vision) to your own machine, and that data stays under Binance's terms.
+
 MIT licence.
